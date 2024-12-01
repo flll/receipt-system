@@ -1,0 +1,19 @@
+{
+  "name": "receipt-printer",
+  "version": "1.0.0",
+  "description": "データ保存機能付きレシートプリンター",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:view": "node server.js view 3000",
+    "start:save": "node server.js save 3000",
+    "view": "node server.js view 3000",
+    "save": "node server.js save 3000"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.14.0",
+    "express": "^4.21.1",
+    "uuid": "^11.0.3"
+  },
+  "type": "module"
+}

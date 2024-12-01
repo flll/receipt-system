@@ -1,0 +1,12 @@
+{
+  "protocol": "https",
+  "printerIP": "10.0.0.1",
+  "devid": "local_printer",
+  "phone": "0000-00-0000",
+  "address": "福岡県",
+  "amount": "20000",
+  "receiptURL": "http://localhost",
+  "issuerName": "発行者名",
+  "projectId": "aaa",
+  "bucketName": "aaa"
+}
