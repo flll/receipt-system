@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>ePOS-領収書印刷</title>
+<script type="text/javascript">
+<!--
+    let CONFIG = {};
+
+    async function loadConfig() {
+        try {
+            const response = await fetch('./config/config.json');
+            if (!response.ok) {
+                throw new Error('設定ファイルの読み込みに失敗しました');
+            }
+            CONFIG = await response.json();
+
+            document.getElementById('amount').value = CONFIG.amount;
+
+            updateConfigDisplay();
+        } catch (error) {
+            console.error('設定読み込みエラー:', error);
+            alert('設定ファイルの読み込みに失敗しました: ' + error.message);
+        }
+    }
+
+    window.onload = loadConfig;
+
+    function updateConfigDisplay() {
+        const currentTime = formatDateTime(new Date());
+        document.getElementById('currentConfig').textContent =
+            `現在の設定: IP=${CONFIG.printerIP}, 金額=${CONFIG.amount}円, UUID=${CONFIG.uuid || '未生成'}, 時刻=${currentTime}`;
+    }
+
+    async function generateUUIDv7() {
+        try {
+            const response = await fetch('./api/generate-uuid');
+            if (!response.ok) {
+                throw new Error(`UUIDの取得に失敗しました (${response.status})`);
+            }
+            const data = await response.json();
+            if (!data.uuid) {
+                throw new Error('無効なUUIDレスポンス');
+            }
+            return data.uuid;
+        } catch (error) {
+            console.error('UUID取得エラー:', error);
+            alert('UUIDの取得に失敗しました: ' + error.message);
+            throw error;
+        }
+    }
+
+    function getPrinterUrl() {
+        return `${CONFIG.protocol}://${CONFIG.printerIP}/cgi-bin/epos/service.cgi?devid=${CONFIG.devid}&timeout=10000`;
+    }
+
+    function validateAmount(value) {
+        const amount = parseInt(value);
+        if (isNaN(amount) || amount > 20000 || amount < 0) {
+            alert('金額は0から20,000円の間で入力してください。');
+            return false;
+        }
+        return true;
+    }
+
+    function formatDateTime(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        const weekday = weekdays[date.getDay()];
+        return `${year}年${month}月${day}日(${weekday})${hours}:${minutes}`;
+    }
+
+    async function updateConfig() {
+        const newAmount = document.getElementById('amount').value;
+        if (!validateAmount(newAmount)) return;
+
+        CONFIG.amount = newAmount;
+        CONFIG.uuid = await generateUUIDv7();
+
+        updateConfigDisplay();
+    }
+
+    async function button1_Click() {
+        try {
+            const printButton = document.querySelector('button');
+            printButton.disabled = true;
+
+            await updateConfig();
+            const url = getPrinterUrl();
+            const currentDateTime = formatDateTime(new Date());
+
+            var req =
+                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' +
+                '<s:Body>' +
+                    '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">' +
+                    '<text align="center"/>' +
+                    '<text linespc="30"/>' +
+                    '<logo key1="48" key2="48"/>' +
+                    '<text lang="ja"/>' +
+                    '<text font="special_a"/>' +
+                    '<text smooth="true"/>' +
+                    '<text dw="true" dh="true"/>' +
+                    '<text dw="false" dh="false"/>' +
+                    `<text>${CONFIG.issuerName}&#10;</text>` +
+                    `<text>電話&#9;${CONFIG.phone}&#10;</text>` +
+                    `<text>住所&#9;${CONFIG.address}&#10;&#10;</text>` +
+                    '<text linespc="60"/>' +
+                    '<text dw="true" dh="true"/>' +
+                    '<text reverse="false" ul="false" em="true" color="color_1"/>' +
+                    '<text>領収書&#10;</text>' +
+                    '<text dw="false" dh="false"/>' +
+                    '<text reverse="false" ul="false" em="false" color="color_1"/>' +
+                    `<text>${currentDateTime}&#10;</text>` +
+                    `<text>金額&#9;\\${CONFIG.amount}&#10;</text>` +
+                    `<symbol type="qrcode_model_2" level="default" width="3" height="0" size="0">${CONFIG.receiptURL}/${CONFIG.uuid}</symbol>` +
+                    `<symbol type="pdf417_standard" level="level_3" width="3" height="0" size="0">${CONFIG.uuid}</symbol>` +
+                    '<cut type="feed"/>' +
+                    '</epos-print>' +
+                '</s:Body>' +
+                '</s:Envelope>';
+
+            // 印刷ドキュメントの送信
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
+            xhr.setRequestHeader('If-Modified-Since', 'Thu, 01 Jan 1970 00:00:00 GMT');
+            xhr.setRequestHeader('SOAPAction', '""');
+            xhr.onreadystatechange = async function () {
+                // レスポンスドキュメントの受信
+                if (xhr.readyState == 4) {
+                    printButton.disabled = false;
+
+                    if (xhr.status == 200) {
+                        const success = xhr.responseXML.getElementsByTagName('response')[0].getAttribute('success');
+                        if (success === 'true') {
+                            // 印刷成功時のみデータを保存
+                            const saveResponse = await fetch('/api/save-receipt', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    uuid: CONFIG.uuid,
+                                    amount: CONFIG.amount,
+                                    datetime: currentDateTime,
+                                    phone: CONFIG.phone,
+                                    address: CONFIG.address,
+                                    issuerName: CONFIG.issuerName
+                                })
+                            });
+
+                            if (!saveResponse.ok) {
+                                throw new Error('印���データの保存に失敗しました');
+                            }
+                            alert('印刷が完了しました');
+                        } else {
+                            alert('印刷に失敗しました');
+                        }
+                    }
+                    else {
+                        alert('ネットワークエラーが発生しました。');
+                    }
+                }
+            };
+
+            xhr.send(req);
+        } catch (error) {
+            console.error('エラーが発生しました:', error);
+            alert('エラーが発生しました: ' + error.message);
+            document.querySelector('button').disabled = false;
+        }
+    }
+
+//-->
+</script>
+</head>
+
+<body>
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2>設定</h2>
+        <div style="margin-bottom: 20px;">
+            <label>金額：</label>
+            <input type="number" id="amount" value="20000" max="20000"><br>
+        </div>
+
+        <div id="currentConfig" style="margin-bottom: 20px;"></div>
+
+        <div style="text-align: center;">
+            <button onclick="button1_Click()" style="padding: 10px 20px;">印刷</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', updateConfigDisplay);
+    </script>
+</body>
+</html>

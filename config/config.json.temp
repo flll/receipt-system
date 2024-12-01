@@ -1,0 +1,11 @@
+{
+  "bucketName": "YOUR_BUCKET_NAME",
+  "protocol": "http",
+  "printerIP": "YOUR_PRINTER_IP",
+  "devid": "local_printer",
+  "amount": "10000",
+  "phone": "03-XXXX-XXXX",
+  "address": "東京都...",
+  "issuerName": "株式会社...",
+  "receiptURL": "https://YOUR_CLOUD_RUN_URL/receipt?uuid"
+}
