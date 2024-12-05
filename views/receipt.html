@@ -53,9 +53,9 @@
         }
         .receipt-detail:hover {
             background-color: #f8f9fa;
-            padding-left: 8px;
-            padding-right: 8px;
-            border-radius: 8px;
+            padding-left: 1px;
+            padding-right: 1px;
+            border-radius: 1px;
         }
         .receipt-detail span:first-child {
             color: #718096;
@@ -125,6 +125,15 @@
     </div>
 
     <script>
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         async function loadReceipt() {
             const urlParams = new URLSearchParams(window.location.search);
             const uuid = urlParams.get('uuid');
@@ -138,42 +147,59 @@
                 const data = await response.json();
                 const content = document.getElementById('receipt-content');
 
-                content.innerHTML = `
-                    <div class="receipt-detail">
-                        <span>発行日時：</span>
-                        <span>${data.datetime}</span>
-                    </div>
-                    <div class="receipt-detail">
-                        <span>発行元：</span>
-                        <span>${data.issuerName}</span>
-                    </div>
-                    <div class="receipt-detail">
-                        <span>金額：</span>
-                        <span class="amount">￥${Number(data.amount).toLocaleString()}</span>
-                    </div>
-                    <div class="receipt-detail">
-                        <span>発行元電話番号：</span>
-                        <span>${data.phone}</span>
-                    </div>
-                    <div class="receipt-detail">
-                        <span>発行元住所：</span>
-                        <span>${data.address}</span>
-                    </div>
-                    <div class="receipt-detail">
-                        <span>UUID(v7)：</span>
-                        <span>${data.uuid}</span>
-                    </div>
-                    <div class="qr-code">
-                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(window.location.href)}" alt="QR Code">
-                    </div>
-                `;
+                content.innerHTML = '';
+
+                const createReceiptDetail = (label, value) => {
+                    const div = document.createElement('div');
+                    div.className = 'receipt-detail';
+
+                    const labelSpan = document.createElement('span');
+                    labelSpan.textContent = label;
+
+                    const valueSpan = document.createElement('span');
+                    if (label === '金額：') {
+                        valueSpan.className = 'amount';
+                        valueSpan.textContent = `￥${Number(value).toLocaleString()}`;
+                    } else {
+                        valueSpan.textContent = value;
+                    }
+
+                    div.appendChild(labelSpan);
+                    div.appendChild(valueSpan);
+                    return div;
+                };
+
+                content.appendChild(createReceiptDetail('発行日時：', data.datetime));
+                content.appendChild(createReceiptDetail('発行元：', data.issuerName));
+                content.appendChild(createReceiptDetail('金額：', data.amount));
+                content.appendChild(createReceiptDetail('発行元電話番号：', data.phone));
+                content.appendChild(createReceiptDetail('発行元住所：', data.address));
+                content.appendChild(createReceiptDetail('UUID(v7)：', data.uuid));
+
+                const qrDiv = document.createElement('div');
+                qrDiv.className = 'qr-code';
+
+                const qrImg = document.createElement('img');
+                qrImg.alt = 'QR Code';
+                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(window.location.href)}`;
+
+                qrDiv.appendChild(qrImg);
+                content.appendChild(qrDiv);
+
             } catch (error) {
                 console.error('エラー:', error);
-                document.getElementById('receipt-content').innerHTML = `
-                    <div style="color: #e53e3e; text-align: center; padding: 20px; background-color: #fff5f5; border-radius: 8px;">
-                        エラーが発生しました：${error.message}
-                    </div>
-                `;
+                const content = document.getElementById('receipt-content');
+
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = '#e53e3e';
+                errorDiv.style.textAlign = 'center';
+                errorDiv.style.padding = '20px';
+                errorDiv.style.backgroundColor = '#fff5f5';
+                errorDiv.style.borderRadius = '8px';
+                errorDiv.textContent = `エラーが発生しました：${error.message}`;
+
+                content.innerHTML = '';
+                content.appendChild(errorDiv);
             }
         }
 

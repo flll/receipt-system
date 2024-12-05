@@ -1,11 +1,19 @@
 {
-  "bucketName": "YOUR_BUCKET_NAME",
-  "protocol": "http",
-  "printerIP": "YOUR_PRINTER_IP",
+  "protocol": "https",
+  "printerIP": "xxx.xxx.xxx.xxx",
   "devid": "local_printer",
-  "amount": "10000",
-  "phone": "03-XXXX-XXXX",
+  "phone": "xxx-xxxx-xxxx",
   "address": "東京都...",
+  "amount": "0",
+  "receiptURL": "https://your-domain.com/receipt?uuid=",
   "issuerName": "株式会社...",
-  "receiptURL": "https://YOUR_CLOUD_RUN_URL/receipt?uuid"
+  "projectId": "lll-fish",
+  "bucketName": "your-bucket-name",
+  "firebaseApiKey": "your-api-key",
+  "firebaseAuthDomain": "your-project-id.firebaseapp.com",
+  "firebaseProjectId": "your-project-id",
+  "allowedEmails": [
+    "example1@domain.com",
+    "example2@domain.com"
+  ]
 }

@@ -1,7 +1,6 @@
-
-# アプリケーション固有
-config/config.json
-service-account-key.json
+# app
+config/*config*.json
+config/*service-account-key*.json
 
 # 依存関係
 node_modules
@@ -19,6 +18,7 @@ yarn-error.log*
 Dockerfile*
 docker-compose*
 .github
+security.log
 
 
 

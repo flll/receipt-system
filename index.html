@@ -3,10 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="csrf-token" content="" id="csrf-token" />
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>ePOS-領収書印刷</title>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script type="text/javascript">
 <!--
     let CONFIG = {};
+    let currentUser = null;
 
     async function loadConfig() {
         try {
@@ -16,12 +23,73 @@
             }
             CONFIG = await response.json();
 
-            document.getElementById('amount').value = CONFIG.amount;
+            const firebaseConfig = {
+                apiKey: CONFIG.firebaseApiKey,
+                authDomain: CONFIG.firebaseAuthDomain,
+                projectId: CONFIG.firebaseProjectId
+            };
 
+            firebase.apps.forEach(app => app.delete());
+
+            firebase.initializeApp(firebaseConfig);
+
+            checkAuthState();
+            document.getElementById('amount').value = CONFIG.amount;
             updateConfigDisplay();
         } catch (error) {
             console.error('設定読み込みエラー:', error);
             alert('設定ファイルの読み込みに失敗しました: ' + error.message);
+        }
+    }
+
+    function checkAuthState() {
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    const response = await fetch('./config/config.json');
+                    const config = await response.json();
+
+                    if (config.allowedEmails.includes(user.email)) {
+                        currentUser = user;
+                        document.getElementById('loginStatus').textContent =
+                            `ログイン中: ${user.email}`;
+                        document.getElementById('printButton').disabled = false;
+                    } else {
+                        await firebase.auth().signOut();
+                        alert('このメールアドレスには操作権限がありません');
+                        document.getElementById('loginStatus').textContent =
+                            'ログインしていません';
+                        document.getElementById('printButton').disabled = true;
+                    }
+                } catch (error) {
+                    console.error('設定読み込みエラー:', error);
+                    alert('設定の読み込みに失敗しました');
+                }
+            } else {
+                currentUser = null;
+                document.getElementById('loginStatus').textContent =
+                    'ログインしていません';
+                document.getElementById('printButton').disabled = true;
+            }
+        });
+    }
+
+    async function login() {
+        try {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            await firebase.auth().signInWithPopup(provider);
+        } catch (error) {
+            console.error('ログインエラー:', error);
+            alert('ログインに失敗しました: ' + error.message);
+        }
+    }
+
+    async function logout() {
+        try {
+            await firebase.auth().signOut();
+        } catch (error) {
+            console.error('ログアウトエラー:', error);
+            alert('ログアウトに失敗しました: ' + error.message);
         }
     }
 
@@ -86,12 +154,22 @@
     }
 
     async function button1_Click() {
+        if (!currentUser) {
+            alert('ログインが必要です');
+            return;
+        }
+
         try {
+            const idToken = await currentUser.getIdToken();
             const printButton = document.querySelector('button');
             printButton.disabled = true;
 
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
             await updateConfig();
             const url = getPrinterUrl();
+            console.log('プリンターURL:', url);
+
             const currentDateTime = formatDateTime(new Date());
 
             var req =
@@ -117,7 +195,7 @@
                     '<text reverse="false" ul="false" em="false" color="color_1"/>' +
                     `<text>${currentDateTime}&#10;</text>` +
                     `<text>金額&#9;\\${CONFIG.amount}&#10;</text>` +
-                    `<symbol type="qrcode_model_2" level="default" width="3" height="0" size="0">${CONFIG.receiptURL}/${CONFIG.uuid}</symbol>` +
+                    `<symbol type="qrcode_model_2" level="default" width="3" height="0" size="0">${CONFIG.receiptURL}${CONFIG.uuid}</symbol>` +
                     `<symbol type="pdf417_standard" level="level_3" width="3" height="0" size="0">${CONFIG.uuid}</symbol>` +
                     '<cut type="feed"/>' +
                     '</epos-print>' +
@@ -130,44 +208,68 @@
             xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
             xhr.setRequestHeader('If-Modified-Since', 'Thu, 01 Jan 1970 00:00:00 GMT');
             xhr.setRequestHeader('SOAPAction', '""');
+            xhr.setRequestHeader('X-CSRF-Token', csrfToken);
             xhr.onreadystatechange = async function () {
-                // レスポンスドキュメントの受信
                 if (xhr.readyState == 4) {
                     printButton.disabled = false;
 
                     if (xhr.status == 200) {
-                        const success = xhr.responseXML.getElementsByTagName('response')[0].getAttribute('success');
-                        if (success === 'true') {
-                            // 印刷成功時のみデータを保存
-                            const saveResponse = await fetch('/api/save-receipt', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({
-                                    uuid: CONFIG.uuid,
-                                    amount: CONFIG.amount,
-                                    datetime: currentDateTime,
-                                    phone: CONFIG.phone,
-                                    address: CONFIG.address,
-                                    issuerName: CONFIG.issuerName
-                                })
-                            });
+                        const response = xhr.responseXML;
+                        console.log('プリンターレスポンス:', response);
 
-                            if (!saveResponse.ok) {
-                                throw new Error('印���データの保存に失敗しました');
+                        if (response && response.getElementsByTagName('response')[0]) {
+                            const success = response.getElementsByTagName('response')[0].getAttribute('success');
+                            if (success === 'true') {
+                                try {
+                                    const saveResponse = await fetch('/api/save-receipt', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${idToken}`
+                                        },
+                                        body: JSON.stringify({
+                                            uuid: CONFIG.uuid,
+                                            amount: CONFIG.amount,
+                                            datetime: currentDateTime,
+                                            phone: CONFIG.phone,
+                                            address: CONFIG.address,
+                                            issuerName: CONFIG.issuerName
+                                        })
+                                    });
+
+                                    if (!saveResponse.ok) {
+                                        throw new Error('印刷データの保存に失敗しました');
+                                    }
+                                    alert('印刷が完了しました');
+                                } catch (saveError) {
+                                    console.error('データ保存エラー:', saveError);
+                                    alert('印刷は成功しましたが、データの保存に失敗しました: ' + saveError.message);
+                                }
+                            } else {
+                                const code = response.getElementsByTagName('response')[0].getAttribute('code');
+                                const status = response.getElementsByTagName('response')[0].getAttribute('status');
+                                console.error('印刷エラー:', { code, status });
+                                alert(`印刷に失敗しました (エラーコード: ${code}, ステータス: ${status})`);
                             }
-                            alert('印刷が完了しました');
                         } else {
-                            alert('印刷に失敗しました');
+                            console.error('不正なレスポンス形式:', xhr.responseText);
+                            alert('プリンターから不正なレスポンスを受信しました');
                         }
-                    }
-                    else {
-                        alert('ネットワークエラーが発生しました。');
+                    } else {
+                        console.error('HTTPエラー:', xhr.status, xhr.statusText);
+                        console.error('レスポンス:', xhr.responseText);
+                        alert(`ネットワークエラーが発生しました (${xhr.status}: ${xhr.statusText})`);
                     }
                 }
             };
 
+            xhr.onerror = function(error) {
+                console.error('XHRエラー:', error);
+                printButton.disabled = false;
+                alert('プリンターとの通信に失敗しました');
+            };
+
+            console.log('リクエスト送信:', req);
             xhr.send(req);
         } catch (error) {
             console.error('エラーが発生しました:', error);
@@ -182,6 +284,10 @@
 
 <body>
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div id="loginStatus" style="margin-bottom: 20px;"></div>
+        <button onclick="login()">ログイン</button>
+        <button onclick="logout()">ログアウト</button>
+
         <h2>設定</h2>
         <div style="margin-bottom: 20px;">
             <label>金額：</label>
@@ -191,12 +297,17 @@
         <div id="currentConfig" style="margin-bottom: 20px;"></div>
 
         <div style="text-align: center;">
-            <button onclick="button1_Click()" style="padding: 10px 20px;">印刷</button>
+            <button id="printButton" onclick="button1_Click()" style="padding: 10px 20px;" disabled>印刷</button>
         </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', updateConfigDisplay);
+        const observer = new MutationObserver(updateConfigDisplay);
+        observer.observe(document.getElementById('currentConfig'), {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
     </script>
 </body>
 </html>

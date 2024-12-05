@@ -1,104 +1,124 @@
-# 電子領収書印刷システム
+# ePOS領収書印刷システム
 
 ## 概要
-このシステムは、EPSONのレシートプリンターを使用して領収書を印刷し、Google Cloud Storageにデータを保存する機能を提供します。印刷された領収書にはQRコードとPDF417バーコードが含まれ、オンラインで領収書の詳細を確認することができます。
 
-## 主な機能
-- 領収書の印刷
-- QRコードとPDF417バーコードの自動生成
-- Google Cloud Storageへのデータ保存
-- オンラインでの領収書確認機能
-- UUIDv7による一意の識別子生成
+このシステムは、EPSONのePOSプリンターを使用して領収書を印刷し、その内容をGoogle Cloud Storageに保存するウェブアプリケーションです。
 
-## 必要条件
-- Node.js (v14以上)
-- EPSONレシートプリンター（ePOS対応機種）
+主な機能：
+- Google認証によるセキュアなログイン
+- 許可されたメールアドレスのみアクセス可能
+- 領収書の印刷と保存
+- 印刷された領収書のオンライン確認機能
+- QRコードによる領収書の共有
+
+## システム要件
+
+- Node.js 22.11.0以上
+- EPSONのePOS対応プリンター
 - Google Cloud Platform アカウント
-- node -v
-  v22.11.0
-- npm -v
-  10.9.0
+- Firebase プロジェクト
 
-## インストール方法
+## インストール
 
-1. リポジトリをクローン
+### 大まかな流れ:
 
-```bash
-git clone [リポジトリURL]
-cd receipt-printer
-```
+1. firebaseを作成
+1. firebaseでAuthenticatorを有効化
+1. firebaseのサービスアカウントのメールアドレスが発行されるため、
+    そのメールアドレスを使ってStorage Cloudバケットに読書権限を付与する。
+1. config.jsonを頑張って書き込む
+1. Google Cloud Secret-Managerにconfig.jsonを添付する。
+1. Cloud Runにビルドしたdockerコンテナを積載し、/app/configにシークレットをマウントさせる。
+1. デプロイ
 
-2. 依存パッケージのインストール
+### 詳細な手順:
 
-```bash
-npm install
-```
+1. 設定ファイルの準備:
+   - `config/config.json.temp` を `config/config.json` にコピー
+   - 必要な設定を行う:
+     ```json
+     {
+       "protocol": "https",
+       "printerIP": "xxx.xxx.xxx.xxx",
+       "devid": "local_printer",
+       "phone": "xxx-xxxx-xxxx",
+       "address": "東京都...",
+       "issuerName": "株式会社...",
+       "bucketName": "your-bucket-name",
+       "firebaseApiKey": "your-api-key",
+       "firebaseAuthDomain": "your-project-id.firebaseapp.com",
+       "firebaseProjectId": "your-project-id",
+       "allowedEmails": ["example@domain.com"]
+     }
+     ```
 
-3. 設定ファイルの作成
-`config.json`を以下の形式で作成してください：
-
-```json
-{
-  "bucketName": "your-bucket-name",
-  "printerIP": "192.168.x.x",
-  "protocol": "http",
-  "devid": "local_printer",
-  "amount": "10000",
-  "phone": "03-xxxx-xxxx",
-  "address": "東京都...",
-  "issuerName": "発行者名",
-  "receiptURL": "http://your-domain.com/receipt"
-}
-```
+1. Firebase認証の設定:
+   - Firebaseコンソールでサービスアカウントキーを取得
+   - `config/firebase-service-account-key.json`として保存
+   - cloud run の場合はjsonは不要。サービスアカウントの指定を行うこと。
 
 ## 使用方法
 
-### サーバーの起動
-
-両方のサーバーを起動：
+1. サーバーの起動:
 
 ```bash
 npm start
 ```
 
-表示用サーバーのみ起動：
+2. ブラウザでアクセス:
+   - 開発環境: `http://localhost:8080`
+   - 本番環境: 設定したドメイン
 
+3. 操作手順:
+   - Googleアカウントでログイン
+   - 金額を入力（0-20,000円）
+   - 「印刷」ボタンをクリック
+
+
+### ストレージセキュリティ
+- Google Cloud Storageのバケットアクセス権限の確認
+- 保存データの暗号化状態の確認
+- 古いデータの自動削除ポリシーの確認
+
+### 推奨される定期的なセキュリティチェック項目
+1. 依存パッケージの脆弱性スキャン
 ```bash
-npm run start:view
+npm run security-full
 ```
 
-保存用サーバーのみ起動：
-
+2. コードの静的解析
 ```bash
-npm run start:save
+npm install -g eslint
+eslint .
 ```
 
-### アクセス方法
-- 印刷画面: `http://localhost:3000`
-- 領収書確認画面: `http://localhost:3000/receipt?uuid=[UUID]`
+## 技術仕様
 
-## ポート設定
-- 表示用サーバー: 3000番ポート
-- 保存用サーバー: 3001番ポート
+### フロントエンド
+- HTML/CSS/JavaScript
+- Firebase Authentication SDK
 
-## セキュリティ注意事項
-- 本番環境では適切な認証・認可の実装が必要です
-- Google Cloud Storageの認証情報は適切に管理してください
-- プリンターのネットワークアクセスは適切に制限してください
+### バックエンド
+- Express.js
+- Firebase Admin SDK
+- Google Cloud Storage
+- EPSONのePOS SDK
 
-## ライセンス
-MITライセンス
+### データストレージ
+- Google Cloud Storage（領収書データ）
+- Firebaseセッション管理
 
-## 注意事項
-- 本システムは内部ネットワークでの使用を想定しています
-- 金額は0円から20,000円までの範囲で設定可能です
+### 環境変数
+- `PORT`: サーバーポート（デフォルト: 8080）
 
-## Dockerでの実行方法
+## トラブルシューティング
 
-```bash
-docker build -t receipt-printer .
-```
+1. プリンター接続エラー:
+   - プリンターのIPアドレスを確認
+   - ネットワーク接続を確認
+   - ファイアウォール設定を確認
 
-```bash
-docker run -p 3000:3000 -p 3001:3001 -v $(pwd):/app receipt-printer
-```
+2. 認証エラー:
+   - Firebaseの設定を確認
+   - 許可メールアドレスリストを確認
+

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>ログイン - ePOS-領収書印刷</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script>
+        let firebaseInitialized = false;
+
+        async function loadConfig() {
+            try {
+                if (firebaseInitialized) {
+                    return;
+                }
+
+                const response = await fetch('/api/firebase-config');
+                if (!response.ok) {
+                    throw new Error(`設定の取得に失敗しました: ${response.status}`);
+                }
+
+                const config = await response.json();
+                console.log('Firebase設定を読み込みました:', { ...config, apiKey: '***' });
+
+                // 既存のFirebaseアプリを削除
+                firebase.apps.forEach(app => app.delete());
+
+                // Firebaseを初期化
+                firebase.initializeApp(config);
+                firebaseInitialized = true;
+
+                console.log('Firebaseの初期化が完了しました');
+            } catch (error) {
+                console.error('設定読み込みエラー:', error);
+                alert('設定の読み込みに失敗しました: ' + error.message);
+            }
+        }
+
+        async function login() {
+            try {
+                // まだ初期化されていない場合は初期化
+                if (!firebaseInitialized) {
+                    await loadConfig();
+                }
+
+                console.log('ログイン処理を開始します');
+                const provider = new firebase.auth.GoogleAuthProvider();
+                provider.setCustomParameters({
+                    prompt: 'select_account'
+                });
+
+                console.log('Googleログインポップアップを表示します');
+                const result = await firebase.auth().signInWithPopup(provider);
+                console.log('Googleログイン成功');
+
+                const idToken = await result.user.getIdToken();
+                console.log('IDトークンを取得しました');
+
+                const response = await fetch('/sessionLogin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ idToken })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    console.log('セッションログイン成功');
+                    window.location.href = '/';
+                } else {
+                    console.error('セッションログインエラー:', data);
+                    if (data.action === 'logout') {
+                        await firebase.auth().signOut();
+                    }
+                    alert(data.error || 'ログインに失敗しました');
+                }
+            } catch (error) {
+                console.error('ログインエラー:', error);
+                alert('ログインに失敗しました: ' + error.message);
+            }
+        }
+
+        // ページ読み込み時に設定を読み込む
+        document.addEventListener('DOMContentLoaded', loadConfig);
+    </script>
+</head>
+<body>
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; text-align: center;">
+        <h1>ePOS-領収書印刷</h1>
+        <p>続行するにはログインしてください</p>
+        <button onclick="login()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
+            Googleでログイン
+        </button>
+    </div>
+</body>
+</html>

@@ -5,12 +5,28 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "view": "node index.js view",
-    "save": "node index.js save"
+    "start": "node index.js",
+    "security-check": "npm audit",
+    "snyk-test": "snyk test",
+    "outdated": "npm outdated",
+    "security-full": "npm run security-check && npm run snyk-test && npm run outdated",
+    "prestart": "npm run security-check"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",
-    "express": "^4.21.1",
+    "cookie-parser": "^1.4.7",
+    "csrf-csrf": "^3.1.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "express-session": "^1.18.1",
+    "firebase-admin": "^13.0.1",
+    "helmet": "^8.0.0",
     "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/express-session": "^1.18.1",
+    "eslint-plugin-security": "^3.0.1",
+    "snyk": "^1.1.0"
   }
 }
