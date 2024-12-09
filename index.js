@@ -10,7 +10,6 @@ import admin from 'firebase-admin';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import { doubleCsrf } from 'csrf-csrf';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,10 +23,18 @@ let firebaseApp;
 let config;
 
 function getConfig() {
-    if (!config) {
-        config = JSON.parse(readFileSync('./config/config.json', 'utf8'));
+    try {
+        if (!config) {
+            if (!existsSync('./config/config.json')) {
+                throw new Error('config.jsonファイルが見つかりません');
+            }
+            config = JSON.parse(readFileSync('./config/config.json', 'utf8'));
+        }
+        return config;
+    } catch (error) {
+        console.error('設定ファイルの読み込みエラー:', error);
+        throw error;
     }
-    return config;
 }
 
 try {
@@ -219,7 +226,8 @@ function setupServer() {
                     "https://*.googleapis.com",
                     "https://www.googleapis.com",
                     "https://apis.google.com",
-                    "https://accounts.google.com"
+                    "https://accounts.google.com",
+                    "https://*.lll.fish"
                 ],
                 frameSrc: [
                     "'self'",
@@ -249,22 +257,9 @@ function setupServer() {
         hidePoweredBy: true
     }));
 
-    const limiter = rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 100,
-        standardHeaders: true,
-        legacyHeaders: false,
-        trustProxy: false,
-        keyGenerator: (req) => {
-            const realIp = req.get('X-Forwarded-For')?.split(',').pop() ||
-                          req.ip;
-            return realIp;
-        }
-    });
-    app.use(limiter);
 
     app.use(session({
-        secret: process.env.SESSION_SECRET || 'your-secret-key',
+        secret: process.env.SESSION_SECRET || 'pikachuuuuufw6j1m598tyzyzeesxrckkwt',
         resave: false,
         saveUninitialized: false,
         cookie: {
@@ -294,7 +289,6 @@ function setupServer() {
             '/api/firebase-config',
             '/sessionLogin',
             '/logout',
-            '/_ah/warmup',
             '/editor'
         ];
 
@@ -329,11 +323,11 @@ function setupServer() {
 
     app.use(authCheckMiddleware);
 
-    app.get('/receipt', (req, res) => {
+    app.get('/receipt', (_, res) => {
         res.sendFile(path.join(__dirname, 'views/receipt.html'));
     });
 
-    app.get('/login', (req, res) => {
+    app.get('/login', (_, res) => {
         res.sendFile(path.join(__dirname, 'views/login.html'));
     });
 
@@ -354,7 +348,8 @@ function setupServer() {
                 });
             }
 
-            const expiresIn = 60 * 60 * 24 * 5 * 1000;            const sessionCookie = await admin.auth()
+            const expiresIn = 60 * 60 * 24 * 5 * 1000;
+            const sessionCookie = await admin.auth()
                 .createSessionCookie(idToken, { expiresIn });
 
             res.cookie('session', sessionCookie, {
@@ -399,7 +394,7 @@ function setupServer() {
 
     app.get('/_ah/warmup', warmupMiddleware);
 
-    app.get('/receipt', (req, res) => {
+    app.get('/receipt', (_req, res) => {
         res.sendFile(path.join(__dirname, 'views', 'receipt.html'));
     });
 
@@ -436,7 +431,7 @@ function setupServer() {
     });
 
     const { generateToken, doubleCsrfProtection } = doubleCsrf({
-        getSecret: () => process.env.CSRF_SECRET || 'your-secret-key',
+        getSecret: () => process.env.CSRF_SECRET || 'pikachuuuuufw6j1m598tyzyzeesxrckkwt',
         cookieName: 'x-csrf-token',
         cookieOptions: {
             httpOnly: true,
@@ -468,7 +463,7 @@ function setupServer() {
         return doubleCsrfProtection(req, res, next);
     });
 
-    app.get('/api/csrf-token', (req, res) => {
+    app.get('/api/csrf-token', (_, res) => {
         const token = generateToken(res);
         res.json({ csrfToken: token });
     });
@@ -522,13 +517,7 @@ function setupServer() {
         });
     });
 
-    app.use((err, req, res, next) => {
-        if (err.code === 'CSRF_INVALID') {
-            return res.status(403).json({
-                error: 'CSRF検証に失敗しました'
-            });
-        }
-
+    app.use((err, _, res, _next) => {
         console.error('サーバーエラー:', err);
         res.status(500).json({
             error: 'サーバーエラー'

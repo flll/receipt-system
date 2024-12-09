@@ -1,5 +1,4 @@
 # ePOS領収書印刷システム
-
 ## 概要
 
 このシステムは、EPSONのePOSプリンターを使用して領収書を印刷し、その内容をGoogle Cloud Storageに保存するウェブアプリケーションです。
@@ -122,3 +121,4 @@ eslint .
    - Firebaseの設定を確認
    - 許可メールアドレスリストを確認
 
+![](https://raw.githubusercontent.com/flll/receipt-system/refs/heads/main/editor/b.png)
