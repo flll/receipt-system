@@ -1,5 +1,4 @@
 # ePOS領収書印刷システム
-
 ## 概要
 
 このシステムは、EPSONのePOSプリンターを使用して領収書を印刷し、その内容をGoogle Cloud Storageに保存するウェブアプリケーションです。
@@ -27,6 +26,7 @@
 1. firebaseのサービスアカウントのメールアドレスが発行されるため、
     そのメールアドレスを使ってStorage Cloudバケットに読書権限を付与する。
 1. config.jsonを頑張って書き込む
+1. Access-Control-Allow-Originや、CORSを任意で書き換える
 1. Google Cloud Secret-Managerにconfig.jsonを添付する。
 1. Cloud Runにビルドしたdockerコンテナを積載し、/app/configにシークレットをマウントさせる。
 1. デプロイ
@@ -122,3 +122,4 @@ eslint .
    - Firebaseの設定を確認
    - 許可メールアドレスリストを確認
 
+![](https://raw.githubusercontent.com/flll/receipt-system/refs/heads/main/editor/b.png)

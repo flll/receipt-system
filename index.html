@@ -153,6 +153,18 @@
         updateConfigDisplay();
     }
 
+    function formatAmountWithComma(amount) {
+        const numStr = amount.toString();
+        let result = '';
+        for (let i = 0; i < numStr.length; i++) {
+            result += String.fromCharCode('０'.charCodeAt(0) + parseInt(numStr[i]));
+            if ((numStr.length - i - 1) % 3 === 0 && i < numStr.length - 1) {
+                result += '，';
+            }
+        }
+        return `￥${result}－`;
+    }
+
     async function button1_Click() {
         if (!currentUser) {
             alert('ログインが必要です');
@@ -172,31 +184,51 @@
 
             const currentDateTime = formatDateTime(new Date());
 
+            const formattedAmount = formatAmountWithComma(CONFIG.amount);
             var req =
                 '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' +
                 '<s:Body>' +
                     '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">' +
-                    '<text align="center"/>' +
-                    '<text linespc="30"/>' +
-                    '<logo key1="48" key2="48"/>' +
                     '<text lang="ja"/>' +
-                    '<text font="special_a"/>' +
                     '<text smooth="true"/>' +
+                    '<text align="center"/>' +
+                    `<symbol type="pdf417_standard" level="level_5" width="0" height="4" size="0">${CONFIG.uuid}</symbol>` +
+                    '<page>' +
+                    '<area x="0" y="0" width="550" height="870"/>' +
+                    '<direction dir="top_to_bottom"/>' +
+                    '<position x="80" y="80"/>' +
+                    '<text font="font_c"/>' +
                     '<text dw="true" dh="true"/>' +
-                    '<text dw="false" dh="false"/>' +
-                    `<text>${CONFIG.issuerName}&#10;</text>` +
-                    `<text>電話&#9;${CONFIG.phone}&#10;</text>` +
-                    `<text>住所&#9;${CONFIG.address}&#10;&#10;</text>` +
-                    '<text linespc="60"/>' +
-                    '<text dw="true" dh="true"/>' +
-                    '<text reverse="false" ul="false" em="true" color="color_1"/>' +
-                    '<text>領収書&#10;</text>' +
-                    '<text dw="false" dh="false"/>' +
+                    '<text>領   収   証</text>' +
+                    '<position x="80" y="210"/>' +
+                    '<text reverse="false" ul="true" em="true" color="color_1"/>' +
+                    '<text>　　　　　　　様</text>' +
+                    '<position x="130" y="320"/>' +
+                    `<text>${formattedAmount}</text>` +
                     '<text reverse="false" ul="false" em="false" color="color_1"/>' +
-                    `<text>${currentDateTime}&#10;</text>` +
-                    `<text>金額&#9;\\${CONFIG.amount}&#10;</text>` +
-                    `<symbol type="qrcode_model_2" level="default" width="3" height="0" size="0">${CONFIG.receiptURL}${CONFIG.uuid}</symbol>` +
-                    `<symbol type="pdf417_standard" level="level_3" width="3" height="0" size="0">${CONFIG.uuid}</symbol>` +
+                    '<text dw="false" dh="false"/>' +
+                    '<position x="60" y="380"/>' +
+                    '<text>但し、お品代として</text>' +
+                    '<position x="60" y="410"/>' +
+                    '<text>上記正に領収いたしました。</text>' +
+                    '<position x="40" y="490"/>' +
+                    '<text font="font_a"/>' +
+                    '<text>UUID(v7):</text>' +
+                    '<position x="40" y="520"/>' +
+                    `<text>${CONFIG.uuid}</text>` +
+                    '<position x="530" y="80"/>' +
+                    `<text>${currentDateTime}</text>` +
+                    '<position x="600" y="180"/>' +
+                    `<symbol type="qrcode_model_2" level="level_h" width="3" height="0" size="0">${CONFIG.receiptURL}${CONFIG.uuid}</symbol>` +
+                    '<position x="530" y="440"/>' +
+                    `<text>${CONFIG.issuerName}</text>` +
+                    '<position x="530" y="490"/>' +
+                    `<text>${CONFIG.address}</text>` +
+                    '<position x="530" y="520"/>' +
+                    `<text>TEL ${CONFIG.phone}</text>` +
+                    '</page>' +
+                    '<text rotate="true"/>' +
+                    `<symbol type="pdf417_standard" level="level_5" width="0" height="4" size="0">${CONFIG.uuid}</symbol>` +
                     '<cut type="feed"/>' +
                     '</epos-print>' +
                 '</s:Body>' +
@@ -205,10 +237,13 @@
             // 印刷ドキュメントの送信
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
+            xhr.withCredentials = true;
             xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
             xhr.setRequestHeader('If-Modified-Since', 'Thu, 01 Jan 1970 00:00:00 GMT');
             xhr.setRequestHeader('SOAPAction', '""');
             xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
             xhr.onreadystatechange = async function () {
                 if (xhr.readyState == 4) {
                     printButton.disabled = false;

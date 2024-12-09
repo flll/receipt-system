@@ -1,14 +1,17 @@
-FROM node:22 AS build-env
+FROM node:22 AS build
 WORKDIR /app
 COPY . .
 RUN [ ! -f config/config.json ] && cp config/config.json.temp config/config.json
 RUN npm --loglevel silly ci --omit=dev
 
 
-FROM gcr.io/distroless/nodejs22-debian12:latest-amd64
-COPY --from=build-env /app /app
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
+LABEL org.opencontainers.image.source="https://github.com/flll/receipt-system" \
+      org.opencontainers.image.title="ePOS領収書管理システム" \
+      org.opencontainers.image.description="https://receipt-view.lll.fish/receipt?uuid=00000000-0000-0000-0000-000000000000" \
+      org.opencontainers.image.created="2024-12-09" \
+      org.opencontainers.image.licenses="MIT"
+COPY --from=build /app /app
 WORKDIR /app
-ENTRYPOINT ["/nodejs/bin/node", "index.js"]
-#ENTRYPOINT ["node", "index.js"]
-CMD ["view"]
+CMD ["index.js"]
 STOPSIGNAL SIGTERM
