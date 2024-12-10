@@ -10,7 +10,7 @@ import admin from 'firebase-admin';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import helmet from 'helmet';
-import { doubleCsrf } from 'csrf-csrf';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,18 +23,10 @@ let firebaseApp;
 let config;
 
 function getConfig() {
-    try {
-        if (!config) {
-            if (!existsSync('./config/config.json')) {
-                throw new Error('config.jsonファイルが見つかりません');
-            }
-            config = JSON.parse(readFileSync('./config/config.json', 'utf8'));
-        }
-        return config;
-    } catch (error) {
-        console.error('設定ファイルの読み込みエラー:', error);
-        throw error;
+    if (!config) {
+        config = JSON.parse(readFileSync('./config/config.json', 'utf8'));
     }
+    return config;
 }
 
 try {
@@ -172,25 +164,80 @@ function setupServer() {
 
     app.set('trust proxy', 1);
 
+    app.use(express.json());
+    app.use(cookieParser());
+
+    app.use((req, _, next) => {
+        const userIP = req.headers['cf-connecting-ip'] || req.ip;
+        const method = req.method;
+        const path = req.path;
+        console.log(`${method} ${userIP} ${path}`);
+        next();
+    });
+
     app.use((req, res, next) => {
-        const allowedOrigins = [
-            'https://receipt-view.lll.fish',
-            'https://kitchen-printer.lll.fish'
-        ];
-        
+        const config = getConfig();
+        const allowedOrigins = ['receipt-printer.lll.fish', 'http://localhost:8080', `https://${config.printerIP}`];
         const origin = req.headers.origin;
+
         if (allowedOrigins.includes(origin)) {
             res.header('Access-Control-Allow-Origin', origin);
-            res.header('Access-Control-Allow-Credentials', 'true');
-            res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-            res.header('Access-Control-Allow-Headers', 
-                'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-CSRF-Token');
         }
 
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, SOAPAction, X-CSRF-Token');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Cross-Origin-Opener-Policy', 'unsafe-none');
+        res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+
         if (req.method === 'OPTIONS') {
-            return res.status(200).end();
+            res.header('Access-Control-Max-Age', '86400');
+            return res.status(204).end();
         }
         next();
+    });
+
+    app.use(session({
+        secret: process.env.SESSION_SECRET || 'your-secret-key',
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            secure: true,
+            httpOnly: true,
+            sameSite: 'Lax',
+            maxAge: 1000 * 60 * 60 * 24
+        },
+        name: '__Host-session',
+        rolling: true
+    }));
+
+    const csrfProtection = (req, res, next) => {
+        const token = req.headers['x-csrf-token'];
+        const cookieToken = req.cookies['x-csrf-token'];
+
+        if (req.method === 'POST' && (!token || !cookieToken || token !== cookieToken)) {
+            return res.status(403).json({ error: 'Invalid CSRF token' });
+        }
+        next();
+    };
+
+    app.get('/api/csrf-token', (_, res) => {
+        try {
+            const token = crypto.randomBytes(32).toString('hex');
+            res.cookie('x-csrf-token', token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/'
+            });
+            res.json({ csrfToken: token });
+        } catch (error) {
+            console.error('CSRFトークン生成エラー:', error);
+            res.status(500).json({
+                error: 'CSRFトークンの生成に失敗しました',
+                details: error.message
+            });
+        }
     });
 
     app.use(helmet({
@@ -237,7 +284,8 @@ function setupServer() {
                     "https://accounts.google.com",
                     "https://*.lll.fish",
                     "https://*.cloudflareinsights.com",
-                    "https://kitchen-printer.lll.fish"
+                    "https://kitchen-printer.lll.fish",
+                    `https://${getConfig().printerIP}`
                 ],
                 frameSrc: [
                     "'self'",
@@ -267,26 +315,9 @@ function setupServer() {
         hidePoweredBy: true
     }));
 
-
-    app.use(session({
-        secret: process.env.SESSION_SECRET || 'pikachuuuuufw6j1m598tyzyzeesxrckkwt',
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax',
-            maxAge: 1000 * 60 * 60 * 24
-        },
-        name: '__Host-session',
-        rolling: true
-    }));
-
-    app.use(express.json());
-    app.use(cookieParser());
-
     app.use(sessionCheckMiddleware);
 
+    app.use('/js', express.static(path.join(__dirname, 'js')));
     app.use('/editor', express.static(path.join(__dirname, 'editor')));
     app.use('/login', express.static(path.join(__dirname, 'views/login.html')));
     app.use('/receipt', express.static(path.join(__dirname, 'views/receipt.html')));
@@ -299,6 +330,7 @@ function setupServer() {
             '/api/firebase-config',
             '/sessionLogin',
             '/logout',
+            '/_ah/warmup',
             '/editor'
         ];
 
@@ -333,11 +365,11 @@ function setupServer() {
 
     app.use(authCheckMiddleware);
 
-    app.get('/receipt', (_, res) => {
+    app.get('/receipt', (req, res) => {
         res.sendFile(path.join(__dirname, 'views/receipt.html'));
     });
 
-    app.get('/login', (_, res) => {
+    app.get('/login', (req, res) => {
         res.sendFile(path.join(__dirname, 'views/login.html'));
     });
 
@@ -358,8 +390,7 @@ function setupServer() {
                 });
             }
 
-            const expiresIn = 60 * 60 * 24 * 5 * 1000;
-            const sessionCookie = await admin.auth()
+            const expiresIn = 60 * 60 * 24 * 5 * 1000;            const sessionCookie = await admin.auth()
                 .createSessionCookie(idToken, { expiresIn });
 
             res.cookie('session', sessionCookie, {
@@ -404,7 +435,7 @@ function setupServer() {
 
     app.get('/_ah/warmup', warmupMiddleware);
 
-    app.get('/receipt', (_req, res) => {
+    app.get('/receipt', (req, res) => {
         res.sendFile(path.join(__dirname, 'views', 'receipt.html'));
     });
 
@@ -440,45 +471,7 @@ function setupServer() {
         }
     });
 
-    const { generateToken, doubleCsrfProtection } = doubleCsrf({
-        getSecret: () => process.env.CSRF_SECRET || 'pikachuuuuufw6j1m598tyzyzeesxrckkwt',
-        cookieName: 'x-csrf-token',
-        cookieOptions: {
-            httpOnly: true,
-            sameSite: 'strict',
-            secure: process.env.NODE_ENV === 'production'
-        },
-        size: 64,
-        getTokenFromRequest: (req) => req.headers['x-csrf-token']
-    });
-
-    app.use((req, res, next) => {
-        const publicPaths = [
-            '/login',
-            '/receipt',
-            '/api/receipt',
-            '/api/firebase-config',
-            '/sessionLogin',
-            '/logout',
-            '/_ah/warmup'
-        ];
-
-        if (publicPaths.includes(req.path) ||
-            req.path.startsWith('/api/receipt/') ||
-            req.path.startsWith('/receipt') ||
-            req.method === 'GET') {
-            return next();
-        }
-
-        return doubleCsrfProtection(req, res, next);
-    });
-
-    app.get('/api/csrf-token', (_, res) => {
-        const token = generateToken(res);
-        res.json({ csrfToken: token });
-    });
-
-    app.post('/api/save-receipt', doubleCsrfProtection, authMiddleware, async (req, res) => {
+    app.post('/api/save-receipt', csrfProtection, authMiddleware, async (req, res) => {
         try {
             const { uuid, amount, datetime, phone, address, issuerName } = req.body;
 
@@ -527,7 +520,13 @@ function setupServer() {
         });
     });
 
-    app.use((err, _, res, _next) => {
+    app.use((err, req, res, next) => {
+        if (err.code === 'CSRF_INVALID') {
+            return res.status(403).json({
+                error: 'CSRF検証に失敗しました'
+            });
+        }
+
         console.error('サーバーエラー:', err);
         res.status(500).json({
             error: 'サーバーエラー'

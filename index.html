@@ -10,6 +10,7 @@
 <title>ePOS-領収書印刷</title>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script type="text/javascript" src="js/epos-print-5.0.0.js"></script>
 <script type="text/javascript">
 <!--
     let CONFIG = {};
@@ -22,6 +23,13 @@
                 throw new Error('設定ファイルの読み込みに失敗しました');
             }
             CONFIG = await response.json();
+
+            // CSRFトークンを取得
+            const csrfResponse = await fetch('/api/csrf-token');
+            if (csrfResponse.ok) {
+                const { csrfToken } = await csrfResponse.json();
+                document.querySelector('meta[name="csrf-token"]').content = csrfToken;
+            }
 
             const firebaseConfig = {
                 apiKey: CONFIG.firebaseApiKey,
@@ -132,6 +140,12 @@
         return true;
     }
 
+    function toFullWidth(num) {
+        return num.toString().replace(/[0-9]/g, function(s) {
+            return String.fromCharCode(s.charCodeAt(0) + 0xFEE0);
+        }).replace(/,/g, '，');
+    }
+
     function formatDateTime(date) {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -143,6 +157,10 @@
         return `${year}年${month}月${day}日(${weekday})${hours}:${minutes}`;
     }
 
+    function formatAmount(amount) {
+        return '￥' + toFullWidth(amount.toLocaleString()) + 'ー';
+    }
+
     async function updateConfig() {
         const newAmount = document.getElementById('amount').value;
         if (!validateAmount(newAmount)) return;
@@ -151,18 +169,6 @@
         CONFIG.uuid = await generateUUIDv7();
 
         updateConfigDisplay();
-    }
-
-    function formatAmountWithComma(amount) {
-        const numStr = amount.toString();
-        let result = '';
-        for (let i = 0; i < numStr.length; i++) {
-            result += String.fromCharCode('０'.charCodeAt(0) + parseInt(numStr[i]));
-            if ((numStr.length - i - 1) % 3 === 0 && i < numStr.length - 1) {
-                result += '，';
-            }
-        }
-        return `￥${result}－`;
     }
 
     async function button1_Click() {
@@ -176,136 +182,111 @@
             const printButton = document.querySelector('button');
             printButton.disabled = true;
 
-            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-
             await updateConfig();
             const url = getPrinterUrl();
             console.log('プリンターURL:', url);
 
             const currentDateTime = formatDateTime(new Date());
 
-            const formattedAmount = formatAmountWithComma(CONFIG.amount);
-            var req =
-                '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' +
-                '<s:Body>' +
-                    '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">' +
-                    '<text lang="ja"/>' +
-                    '<text smooth="true"/>' +
-                    '<text align="center"/>' +
-                    `<symbol type="pdf417_standard" level="level_5" width="0" height="4" size="0">${CONFIG.uuid}</symbol>` +
-                    '<page>' +
-                    '<area x="0" y="0" width="550" height="870"/>' +
-                    '<direction dir="top_to_bottom"/>' +
-                    '<position x="80" y="80"/>' +
-                    '<text font="font_c"/>' +
-                    '<text dw="true" dh="true"/>' +
-                    '<text>領   収   証</text>' +
-                    '<position x="80" y="210"/>' +
-                    '<text reverse="false" ul="true" em="true" color="color_1"/>' +
-                    '<text>　　　　　　　様</text>' +
-                    '<position x="130" y="320"/>' +
-                    `<text>${formattedAmount}</text>` +
-                    '<text reverse="false" ul="false" em="false" color="color_1"/>' +
-                    '<text dw="false" dh="false"/>' +
-                    '<position x="60" y="380"/>' +
-                    '<text>但し、お品代として</text>' +
-                    '<position x="60" y="410"/>' +
-                    '<text>上記正に領収いたしました。</text>' +
-                    '<position x="40" y="490"/>' +
-                    '<text font="font_a"/>' +
-                    '<text>UUID(v7):</text>' +
-                    '<position x="40" y="520"/>' +
-                    `<text>${CONFIG.uuid}</text>` +
-                    '<position x="530" y="80"/>' +
-                    `<text>${currentDateTime}</text>` +
-                    '<position x="600" y="180"/>' +
-                    `<symbol type="qrcode_model_2" level="level_h" width="3" height="0" size="0">${CONFIG.receiptURL}${CONFIG.uuid}</symbol>` +
-                    '<position x="530" y="440"/>' +
-                    `<text>${CONFIG.issuerName}</text>` +
-                    '<position x="530" y="490"/>' +
-                    `<text>${CONFIG.address}</text>` +
-                    '<position x="530" y="520"/>' +
-                    `<text>TEL ${CONFIG.phone}</text>` +
-                    '</page>' +
-                    '<text rotate="true"/>' +
-                    `<symbol type="pdf417_standard" level="level_5" width="0" height="4" size="0">${CONFIG.uuid}</symbol>` +
-                    '<cut type="feed"/>' +
-                    '</epos-print>' +
-                '</s:Body>' +
-                '</s:Envelope>';
+            const builder = new epson.ePOSBuilder();
+            builder.addTextLang('ja');
+            builder.addTextSmooth(true);
+            builder.addTextAlign(builder.ALIGN_CENTER);
+            builder.addSymbol(CONFIG.uuid, builder.SYMBOL_PDF417_STANDARD, builder.LEVEL_8, 0, 1, 0);
+            builder.addPageBegin();
+            builder.addPageArea(0, 0, 550, 870);
+            builder.addPageDirection(builder.DIRECTION_TOP_TO_BOTTOM);
+            builder.addPagePosition(80, 80);
+            builder.addTextFont(builder.FONT_C);
+            builder.addTextDouble(true, true);
+            builder.addText('領   収   証');
+            builder.addPagePosition(80, 210);
+            builder.addTextStyle(false, true, true, builder.COLOR_1);
+            builder.addText('　　　　　　　様');
+            builder.addPagePosition(130, 320);
+            builder.addText(formatAmount(parseInt(CONFIG.amount)));
+            builder.addTextStyle(false, false, false, builder.COLOR_1);
+            builder.addTextDouble(false, false);
+            builder.addPagePosition(60, 380);
+            builder.addText('但し、お品代として');
+            builder.addPagePosition(60, 410);
+            builder.addText('上記正に領収いたしました。');
+            builder.addPagePosition(40, 490);
+            builder.addTextFont(builder.FONT_A);
+            builder.addText('UUID(v7):');
+            builder.addPagePosition(40, 520);
+            builder.addText(CONFIG.uuid);
+            builder.addPagePosition(530, 80);
+            builder.addText(currentDateTime);
+            builder.addPagePosition(600, 180);
+            builder.addSymbol(`${CONFIG.receiptURL}${CONFIG.uuid}`, builder.SYMBOL_QRCODE_MODEL_2, builder.LEVEL_H, 3, 0, 0);
+            builder.addPagePosition(530, 440);
+            builder.addText(CONFIG.issuerName);
+            builder.addPagePosition(530, 490);
+            builder.addText(CONFIG.address);
+            builder.addPagePosition(530, 520);
+            builder.addText(`TEL ${CONFIG.phone}`);
+            builder.addPageEnd();
+            builder.addTextRotate(true);
+            builder.addSymbol(CONFIG.uuid, builder.SYMBOL_PDF417_STANDARD, builder.LEVEL_8, 0, 1, 0);
+            builder.addCut(builder.CUT_FEED);
 
-            // 印刷ドキュメントの送信
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.withCredentials = true;
-            xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
-            xhr.setRequestHeader('If-Modified-Since', 'Thu, 01 Jan 1970 00:00:00 GMT');
-            xhr.setRequestHeader('SOAPAction', '""');
-            xhr.setRequestHeader('X-CSRF-Token', csrfToken);
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+            const epos = new epson.ePOSPrint(url);
+            epos.onreceive = async function(res) {
+                printButton.disabled = false;
 
-            xhr.onreadystatechange = async function () {
-                if (xhr.readyState == 4) {
-                    printButton.disabled = false;
-
-                    if (xhr.status == 200) {
-                        const response = xhr.responseXML;
-                        console.log('プリンターレスポンス:', response);
-
-                        if (response && response.getElementsByTagName('response')[0]) {
-                            const success = response.getElementsByTagName('response')[0].getAttribute('success');
-                            if (success === 'true') {
-                                try {
-                                    const saveResponse = await fetch('/api/save-receipt', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            'Authorization': `Bearer ${idToken}`
-                                        },
-                                        body: JSON.stringify({
-                                            uuid: CONFIG.uuid,
-                                            amount: CONFIG.amount,
-                                            datetime: currentDateTime,
-                                            phone: CONFIG.phone,
-                                            address: CONFIG.address,
-                                            issuerName: CONFIG.issuerName
-                                        })
-                                    });
-
-                                    if (!saveResponse.ok) {
-                                        throw new Error('印刷データの保存に失敗しました');
-                                    }
-                                    alert('印刷が完了しました');
-                                } catch (saveError) {
-                                    console.error('データ保存エラー:', saveError);
-                                    alert('印刷は成功しましたが、データの保存に失敗しました: ' + saveError.message);
-                                }
-                            } else {
-                                const code = response.getElementsByTagName('response')[0].getAttribute('code');
-                                const status = response.getElementsByTagName('response')[0].getAttribute('status');
-                                console.error('印刷エラー:', { code, status });
-                                alert(`印刷に失敗しました (エラーコード: ${code}, ステータス: ${status})`);
-                            }
-                        } else {
-                            console.error('不正なレスポンス形式:', xhr.responseText);
-                            alert('プリンターから不正なレスポンスを受信しました');
+                if (res.success) {
+                    try {
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+                        if (!csrfToken) {
+                            throw new Error('CSRFトークンが見つかりません');
                         }
-                    } else {
-                        console.error('HTTPエラー:', xhr.status, xhr.statusText);
-                        console.error('レスポンス:', xhr.responseText);
-                        alert(`ネットワークエラーが発生しました (${xhr.status}: ${xhr.statusText})`);
+
+                        const saveResponse = await fetch('/api/save-receipt', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${idToken}`,
+                                'X-CSRF-Token': csrfToken
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                                uuid: CONFIG.uuid,
+                                amount: CONFIG.amount,
+                                datetime: currentDateTime,
+                                phone: CONFIG.phone,
+                                address: CONFIG.address,
+                                issuerName: CONFIG.issuerName
+                            })
+                        });
+
+                        if (!saveResponse.ok) {
+                            const errorData = await saveResponse.json();
+                            throw new Error(errorData.error || '印刷データの保存に失敗しました');
+                        }
+                        alert('印刷が完了しました');
+                    } catch (saveError) {
+                        console.error('データ保存エラー:', saveError);
+                        alert('印刷は成功しましたが、データの保存に失敗しました: ' + saveError.message);
                     }
+                } else {
+                    console.error('印刷エラー:', res);
+                    alert('印刷に失敗しました');
                 }
             };
 
-            xhr.onerror = function(error) {
-                console.error('XHRエラー:', error);
+            epos.onerror = function(error) {
+                console.error('印刷エラー:', error);
                 printButton.disabled = false;
-                alert('プリンターとの通信に失敗しました');
+                alert('印刷に失敗しました: ' + error.status);
             };
 
-            console.log('リクエスト送信:', req);
-            xhr.send(req);
+            epos.oncoveropen = function() {
+                alert('プリンターのカバーが開いています');
+            };
+
+            epos.send(builder.toString());
+
         } catch (error) {
             console.error('エラーが発生しました:', error);
             alert('エラーが発生しました: ' + error.message);
