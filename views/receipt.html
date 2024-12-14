@@ -2,113 +2,183 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>領収書詳細</title>
     <style>
+        :root {
+            --background-color: #f8f9fa;
+            --container-bg: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #718096;
+            --text-header: #2d3748;
+            --border-color: #e2e8f0;
+            --shadow-color: rgba(0,0,0,0.1);
+            --error-bg: #fff5f5;
+            --error-text: #e53e3e;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --background-color: #1a202c;
+                --container-bg: #2d3748;
+                --text-primary: #e2e8f0;
+                --text-secondary: #a0aec0;
+                --text-header: #f7fafc;
+                --border-color: #4a5568;
+                --shadow-color: rgba(0,0,0,0.3);
+                --error-bg: #742a2a;
+                --error-text: #fc8181;
+            }
+        }
+
         body {
             font-family: 'Noto Sans JP', sans-serif;
-            max-width: 800px;
+            max-width: 100%;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f8f9fa;
-            color: #212529;
+            padding: 10px;
+            background-color: var(--background-color);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease;
         }
+
+        @media (min-width: 768px) {
+            body {
+                padding: 20px;
+                max-width: 800px;
+            }
+        }
+
         .receipt-container {
-            background-color: white;
-            padding: 40px;
-            border-radius: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-            transition: all 0.3s ease;
+            background-color: var(--container-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px var(--shadow-color);
+            margin: 10px;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
         }
-        .receipt-container:hover {
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+
+        @media (min-width: 768px) {
+            .receipt-container {
+                padding: 40px;
+                margin: 0;
+            }
         }
+
         .receipt-header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             position: relative;
         }
-        .receipt-header:after {
-            content: '';
-            display: block;
-            width: 60px;
-            height: 4px;
-            background: linear-gradient(90deg, #4a90e2, #50e3c2);
-            margin: 20px auto 0;
-            border-radius: 2px;
-        }
+
         .receipt-title {
-            font-size: 32px;
-            font-weight: 700;
-            color: #2d3748;
-            letter-spacing: 0.05em;
-        }
-        .receipt-detail {
-            margin: 15px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #e2e8f0;
-            transition: all 0.2s ease;
-        }
-        .receipt-detail:hover {
-            background-color: #f8f9fa;
-            padding-left: 1px;
-            padding-right: 1px;
-            border-radius: 1px;
-        }
-        .receipt-detail span:first-child {
-            color: #718096;
-            font-weight: 500;
-        }
-        .receipt-detail span:last-child {
-            color: #2d3748;
-            font-weight: 600;
-        }
-        .amount {
             font-size: 24px;
             font-weight: 700;
-            color: #2d3748;
+            color: var(--text-header);
+            letter-spacing: 0.05em;
+            transition: color 0.3s ease;
+        }
+
+        @media (min-width: 768px) {
+            .receipt-title {
+                font-size: 32px;
+            }
+        }
+
+        .receipt-detail {
+            margin: 12px 0;
+            display: flex;
+            flex-direction: column;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+            transition: border-color 0.3s ease;
+        }
+
+        @media (min-width: 768px) {
+            .receipt-detail {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 0;
+            }
+        }
+
+        .receipt-detail span:first-child {
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 4px;
+            transition: color 0.3s ease;
+        }
+
+        @media (min-width: 768px) {
+            .receipt-detail span:first-child {
+                margin-bottom: 0;
+            }
+        }
+
+        .receipt-detail span:last-child {
+            color: var(--text-header);
+            font-weight: 600;
+            word-break: break-all;
+            transition: color 0.3s ease;
+        }
+
+        .amount {
+            font-size: 20px;
+            font-weight: 700;
             background: linear-gradient(90deg, #4a90e2, #50e3c2);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
         }
+
+        @media (min-width: 768px) {
+            .amount {
+                font-size: 24px;
+            }
+        }
+
         .qr-code {
             text-align: center;
-            margin-top: 40px;
-            padding: 20px;
+            margin-top: 30px;
+            padding: 15px;
             position: relative;
         }
-        .qr-code::before {
-            content: '';
-            position: absolute;
-            top: -2px;
-            right: -2px;
-            bottom: -2px;
-            left: -2px;
-            background: linear-gradient(90deg, #4a90e2, #50e3c2, #4a90e2);
-            background-size: 200% 100%;
-            animation: gradient 2s linear infinite;
-            z-index: 0;
-        }
+
         .qr-code img {
-            position: relative;
-            z-index: 1;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.2s ease;
+            max-width: 100%;
+            height: auto;
             background: white;
             padding: 8px;
+            box-shadow: 0 2px 4px var(--shadow-color);
+            transition: box-shadow 0.3s ease;
         }
-        .qr-code img:hover {
-            transform: scale(1.01);
-        }
-        @keyframes gradient {
-            0% {
-                background-position: 0% 0%;
+
+        @media (min-width: 768px) {
+            .qr-code {
+                margin-top: 40px;
+                padding: 20px;
             }
-            100% {
-                background-position: 200% 0%;
+
+            .qr-code img {
+                max-width: 150px;
+            }
+        }
+
+        .error-message {
+            color: var(--error-text);
+            text-align: center;
+            padding: 15px;
+            background-color: var(--error-bg);
+            border-radius: 8px;
+            margin: 10px;
+            font-size: 14px;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        @media (min-width: 768px) {
+            .error-message {
+                padding: 20px;
+                font-size: 16px;
             }
         }
     </style>
@@ -141,7 +211,7 @@
             try {
                 const response = await fetch(`/api/receipt/${uuid}`);
                 if (!response.ok) {
-                    throw new Error('指定されたUUIDの領収書データが存在しません');
+                    throw new Error('指定されたUUIDの領収書データが存在し���せん');
                 }
 
                 const data = await response.json();

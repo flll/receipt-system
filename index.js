@@ -33,7 +33,6 @@ try {
     const firebaseServiceAccountPath = './config/firebase-service-account-key.json';
 
     if (existsSync(firebaseServiceAccountPath)) {
-        console.log('サービスアカウントキーを使用して初期化します');
         const serviceAccount = JSON.parse(
             await readFile(firebaseServiceAccountPath, 'utf8')
         );
@@ -50,9 +49,7 @@ try {
         storage = new Storage({
             credentials: serviceAccount
         });
-        console.log('ローカル環境の初期化が完了しました');
     } else {
-        console.log('Cloud Run環境を検出しました');
         if (!admin.apps.length) {
             const config = getConfig();
             firebaseApp = admin.initializeApp({
@@ -62,7 +59,6 @@ try {
             firebaseApp = admin.app();
         }
         storage = new Storage();
-        console.log('Cloud Run環境の初期化が完了しました');
     }
 } catch (error) {
     console.error('Firebase初期化エラー:', error);
@@ -96,8 +92,8 @@ async function authMiddleware(req, res, next) {
 
         if (!config.allowedEmails.includes(decodedToken.email)) {
             return res.status(403).json({
-                error: 'このメールアドレスには操作権限がありません'
-            });
+                error: 'このメールアドレスには操作権限がありません。config.jsonを確認してください。'
+            }); 
         }
 
         req.user = decodedToken;
@@ -365,11 +361,11 @@ function setupServer() {
 
     app.use(authCheckMiddleware);
 
-    app.get('/receipt', (req, res) => {
+    app.get('/receipt', (_, res) => {
         res.sendFile(path.join(__dirname, 'views/receipt.html'));
     });
 
-    app.get('/login', (req, res) => {
+    app.get('/login', (_, res) => {
         res.sendFile(path.join(__dirname, 'views/login.html'));
     });
 
@@ -390,7 +386,8 @@ function setupServer() {
                 });
             }
 
-            const expiresIn = 60 * 60 * 24 * 5 * 1000;            const sessionCookie = await admin.auth()
+            const expiresIn = 60 * 60 * 24 * 5 * 1000;
+            const sessionCookie = await admin.auth()
                 .createSessionCookie(idToken, { expiresIn });
 
             res.cookie('session', sessionCookie, {
