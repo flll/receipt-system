@@ -173,7 +173,12 @@ function setupServer() {
 
     app.use((req, res, next) => {
         const config = getConfig();
-        const allowedOrigins = ['receipt-printer.lll.fish', 'http://localhost:8080', `https://${config.printerIP}`];
+        const allowedOrigins = [
+            'receipt-printer.lll.fish',
+            'http://localhost:8080',
+            `https://${config.printerIP}`,
+            `http://${config.printerIP}`
+        ];
         const origin = req.headers.origin;
 
         if (allowedOrigins.includes(origin)) {
@@ -198,7 +203,7 @@ function setupServer() {
         resave: false,
         saveUninitialized: false,
         cookie: {
-            secure: true,
+            secure: process.env.NODE_ENV === 'production',
             httpOnly: true,
             sameSite: 'Lax',
             maxAge: 1000 * 60 * 60 * 24
@@ -217,7 +222,22 @@ function setupServer() {
             '/api/receipt'
         ];
 
-        if (req.method === 'GET' || publicPaths.includes(req.path) || 
+        // プリンターからのリクエストの場合はCSRF検証をスキップ
+        const printerIP = getConfig().printerIP;
+        const clientIP = req.headers['cf-connecting-ip'] || 
+                        req.headers['x-forwarded-for'] || 
+                        req.connection.remoteAddress;
+        
+        // プリンターからのリクエスト判定を強化
+        if (req.hostname === printerIP || 
+            req.headers['x-forwarded-host'] === printerIP ||
+            req.get('origin')?.includes(printerIP) ||
+            clientIP === printerIP ||
+            publicPaths.includes(req.path)) {
+            return next();
+        }
+
+        if (req.method === 'GET' || 
             req.path.startsWith('/api/receipt/')) {
             return next();
         }
@@ -226,6 +246,12 @@ function setupServer() {
         const cookieToken = req.cookies['csrf-token'];
 
         if (!csrfToken || !cookieToken || csrfToken !== cookieToken) {
+            console.log('CSRF検証失敗:', {
+                path: req.path,
+                clientIP,
+                origin: req.get('origin'),
+                hostname: req.hostname
+            });
             return res.status(403).json({ error: 'CSRF検証に失敗しました' });
         }
 
@@ -237,9 +263,9 @@ function setupServer() {
         res.cookie('csrf-token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict'
+            sameSite: 'lax'
         });
-        res.json({ token });
+        res.json({ csrfToken: token });
     });
 
     app.use(csrfMiddleware);
@@ -447,7 +473,6 @@ function setupServer() {
     app.get('/api/receipt/:uuid', async (req, res) => {
         try {
             const uuid = req.params.uuid;
-            console.log(`領収書データを取得: UUID=${uuid}`);
 
             const file = bucket.file(`receipts/${uuid}.json`);
             console.log(`バケットパス: receipts/${uuid}.json`);
