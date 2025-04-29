@@ -454,9 +454,15 @@ function setupServer() {
         res.redirect('/login');
     });
 
-    app.get('/', noCacheMiddleware, checkAuthAndAllowedEmail, (_, res) => {
+    app.get('/', noCacheMiddleware, checkAuthAndAllowedEmail, (req, res) => {
+        const csrfToken = crypto.randomBytes(32).toString('hex');
+        res.cookie('csrf-token', csrfToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+        });
         const html = readFileSync(path.join(__dirname, 'index.html'), 'utf8')
-            .replace('content=""', `content="${res.locals.csrfToken}"`);
+            .replace('content=""', `content="${csrfToken}"`);
         res.send(html);
     });
 
