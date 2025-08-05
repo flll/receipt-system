@@ -70,9 +70,9 @@ npm start
    - 本番環境: 設定したドメイン
 
 3. 操作手順:
-   - Googleアカウントでログイン
-   - 金額を入力（0-20,000円）
-   - 「印刷」ボタンをクリック
+   a. Googleアカウントでログイン
+   b. 金額を入力（0-20,000円）
+   c. 「印刷」ボタンをクリック
 
 
 ### ストレージセキュリティ
@@ -123,3 +123,9 @@ eslint .
    - 許可メールアドレスリストを確認
 
 ![](https://raw.githubusercontent.com/flll/receipt-system/refs/heads/main/editor/b.png)
+
+## ライセンス・利用規約
+
+本リポジトリには、EPSONのePOS SDKが含まれています。  
+ePOS SDKの利用には、同梱の `EULA.ja.txt`（エンドユーザーライセンス契約書）の条件が適用されます。  
+本SDKを利用する場合は、必ず `EULA.ja.txt` の内容をご確認ください。
