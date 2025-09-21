@@ -315,6 +315,7 @@ function setupServer() {
                     "https://*.lll.fish",
                     "https://*.cloudflareinsights.com",
                     "https://kitchen-printer.lll.fish",
+                    "https://www.gstatic.com",
                     `https://${getConfig().printerIP}`
                 ],
                 frameSrc: [
