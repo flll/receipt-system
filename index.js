@@ -29,41 +29,47 @@ function getConfig() {
     return config;
 }
 
-try {
-    const firebaseServiceAccountPath = './config/firebase-service-account-key.json';
+function initializeFirebase() {
+    try {
+        const firebaseServiceAccountPath = './config/firebase-service-account-key.json';
 
-    if (existsSync(firebaseServiceAccountPath)) {
-        const serviceAccount = JSON.parse(
-            await readFile(firebaseServiceAccountPath, 'utf8')
-        );
+        if (existsSync(firebaseServiceAccountPath)) {
+            const serviceAccount = JSON.parse(
+                readFileSync(firebaseServiceAccountPath, 'utf8')
+            );
 
-        if (!admin.apps.length) {
-            const config = getConfig();
-            firebaseApp = admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount),
-                storageBucket: config.bucketName
+            if (!admin.apps.length) {
+                const config = getConfig();
+                firebaseApp = admin.initializeApp({
+                    credential: admin.credential.cert(serviceAccount),
+                    storageBucket: config.bucketName
+                });
+            } else {
+                firebaseApp = admin.app();
+            }
+            storage = new Storage({
+                credentials: serviceAccount
             });
         } else {
-            firebaseApp = admin.app();
+            if (!admin.apps.length) {
+                const config = getConfig();
+                firebaseApp = admin.initializeApp({
+                    storageBucket: config.bucketName
+                });
+            } else {
+                firebaseApp = admin.app();
+            }
+            storage = new Storage();
         }
-        storage = new Storage({
-            credentials: serviceAccount
-        });
-    } else {
-        if (!admin.apps.length) {
-            const config = getConfig();
-            firebaseApp = admin.initializeApp({
-                storageBucket: config.bucketName
-            });
-        } else {
-            firebaseApp = admin.app();
-        }
-        storage = new Storage();
+        console.log('Firebase Admin SDK初期化完了');
+    } catch (error) {
+        console.error('Firebase初期化エラー:', error);
+        process.exit(1);
     }
-} catch (error) {
-    console.error('Firebase初期化エラー:', error);
-    process.exit(1);
 }
+
+// Firebase初期化を実行
+initializeFirebase();
 
 const bucketName = getConfig().bucketName;
 const bucket = storage.bucket(bucketName);
@@ -176,6 +182,7 @@ function setupServer() {
         const allowedOrigins = [
             'receipt-printer.lll.fish',
             'http://localhost:8080',
+            'https://localhost:8080',  // httpsのlocalhost:8080を追加
             `https://${config.printerIP}`,
             `http://${config.printerIP}`
         ];
@@ -425,15 +432,17 @@ function setupServer() {
             const sessionCookie = await admin.auth()
                 .createSessionCookie(idToken, { expiresIn });
 
+            const isProduction = process.env.NODE_ENV === 'production';
             res.cookie('session', sessionCookie, {
                 maxAge: expiresIn,
                 httpOnly: true,
-                secure: true,
-                sameSite: 'strict'
+                secure: isProduction, // 開発環境ではfalse、本番環境ではtrue
+                sameSite: isProduction ? 'strict' : 'lax' // 開発環境ではlax
             });
 
             res.json({ status: 'success' });
         } catch (error) {
+            console.error('sessionLoginエラー:', error);
             res.status(401).json({ error: '無効な認証トークンです' });
         }
     });

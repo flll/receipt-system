@@ -57,6 +57,16 @@
    - `config/firebase-service-account-key.json`として保存
    - cloud run の場合はjsonは不要。サービスアカウントの指定を行うこと。
 
+2. Firebase Console でドメインを承認:
+   a. [Firebase Console](https://console.firebase.google.com/) にアクセス
+   b. 対象プロジェクト（例：`receipt-system-flll`）を選択
+   c. 左メニューから「Authentication」をクリック
+   d. 「Settings」タブをクリック
+   e. 「Authorized domains」セクションを見つける
+   f. 「Add domain」ボタンをクリックして以下を追加：
+      - `localhost` (開発環境用)
+      - 本番環境のドメイン（例：`your-domain.com`）
+
 ## 使用方法
 
 1. サーバーの起動:
