@@ -61,10 +61,10 @@ alwaysApply: false
 
 ```
 loadConfig() → CONFIG 設定 → Firebase 初期化 → onAuthStateChanged → UI 更新
-                                                     ↓
-                                              currentUser セット
-                                              loginStatus テキスト更新
-                                              printButton 有効/無効化
+     ↓
+      currentUser セット
+      loginStatus テキスト更新
+      printButton 有効/無効化
 ```
 
 ## 🔗 API 連携パターン
@@ -83,9 +83,9 @@ document.querySelector('meta[name="csrf-token"]').content = csrfToken;
 await fetch('/api/save-receipt', {
     method: 'POST',
     headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
-        'X-CSRF-Token': csrfToken
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+      'X-CSRF-Token': csrfToken
     },
     credentials: 'include',
     body: JSON.stringify(data)

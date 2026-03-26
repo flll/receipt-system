@@ -118,8 +118,8 @@ go run .
 go build -o receipt-system .
 
 # Docker ビルド
-docker build -t receipt-system .
-docker run -p 8080:8080 -v $(pwd)/config:/app/config receipt-system
+docker build -t fjlli/receipt-system .
+docker run -p 8080:8080 -v $(pwd)/config:/app/config fjlli/receipt-system
 ```
 
 ## トラブルシューティング

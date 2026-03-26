@@ -235,8 +235,8 @@ func (s *Server) setupRoutes() {
 	mux := http.NewServeMux()
 
 	// ✷ 静的ファイル
-	mux.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-	mux.Handle("/editor/", http.StripPrefix("/editor/", http.FileServer(http.Dir("./editor"))))
+	mux.Handle("GET /js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
+	mux.Handle("GET /editor/", http.StripPrefix("/editor/", http.FileServer(http.Dir("./editor"))))
 
 	// ✷ 公開 API（認証不要）
 	mux.HandleFunc("GET /api/firebase-config", s.handleFirebaseConfig)
