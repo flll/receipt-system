@@ -1,0 +1,166 @@
+---
+description: デプロイ・インフラ・設定管理・CI/CD・本番環境
+globs: Dockerfile,.github/workflows/**,config/**
+alwaysApply: false
+---
+
+# 🚀 デプロイ・インフラ
+
+## 📋 設定管理
+
+### config.json の構造
+
+`config/config.json` がアプリケーションの全設定を保持する。テンプレートは `config/config.json.temp`。
+
+| キー | 説明 | 例 |
+|---|---|---|
+| `protocol` | プリンタ通信プロトコル | `"https"` |
+| `printerIP` | ePOS プリンタの IP アドレス | `"xxx.xxx.xxx.xxx"` |
+| `devid` | プリンタデバイス ID | `"local_printer"` |
+| `phone` | 領収書に印字する電話番号 | `"xxx-xxxx-xxxx"` |
+| `address` | 領収書に印字する住所 | `"東京都..."` |
+| `amount` | デフォルト金額 | `"0"` |
+| `receiptURL` | 領収書公開 URL のベース | `"https://your-domain.com/receipt?uuid="` |
+| `issuerName` | 発行者名 | `"株式会社..."` |
+| `projectId` | GCP プロジェクト ID | `"lll-fish"` |
+| `bucketName` | GCS バケット名 | `"your-bucket-name"` |
+| `firebaseApiKey` | Firebase Web API キー | `"your-api-key"` |
+| `firebaseAuthDomain` | Firebase Auth ドメイン | `"your-project-id.firebaseapp.com"` |
+| `firebaseProjectId` | Firebase プロジェクト ID | `"your-project-id"` |
+| `allowedEmails` | アクセス許可メールリスト | `["user@example.com"]` |
+
+### 環境変数
+
+| 変数 | 用途 | デフォルト |
+|---|---|---|
+| `PORT` | HTTP リスンポート | `8080` |
+| `SESSION_SECRET` | express-session の秘密鍵 | `'your-secret-key'`（⚠️ 本番では必ず変更） |
+| `NODE_ENV` | `production` で Cookie secure 等が有効化 | — |
+
+### 設定のホットリロード
+
+`index.js` 内で `fs.watch('./config/config.json')` により、ファイル変更を検知して自動的に設定を再読込する。コンテナ再起動なしで設定変更が反映される。
+
+## 🐳 Docker
+
+### Dockerfile（マルチステージビルド）
+
+```
+# Stage 1: ビルド
+FROM node:22
+  - config.json が無ければ config.json.temp をコピー
+  - npm ci --omit=dev（本番依存のみ）
+
+# Stage 2: 実行
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
+  - ビルド成果物を /app にコピー
+  - CMD ["index.js"]
+  - STOPSIGNAL SIGTERM
+```
+
+**ポイント**:
+- distroless イメージで攻撃面を最小化（シェル無し）
+- `nonroot` ユーザーで実行
+- `config.json` はイメージに含まれない（`.dockerignore` で除外）→ 実行時にマウント
+
+### .dockerignore
+
+以下がイメージから除外される:
+- `config/*config*.json`, `config/*service-account-key*.json` — 機密情報
+- `node_modules` — ビルド時に `npm ci` で再インストール
+- `.git`, `.github` — VCS 情報
+- `.env*`, `*.log`, `*.md` — 開発用ファイル
+
+## 🔄 CI/CD
+
+### GitHub Actions (`.github/workflows/docker-publish.yml`)
+
+```mermaid
+graph LR
+    Push["main に push"] --> Build["Docker ビルド"]
+    PR["PR 作成"] --> BuildOnly["Docker ビルド (push なし)"]
+    Build --> Tag["タグ付け"]
+    Tag --> Hub["Docker Hub にプッシュ"]
+
+    subgraph tags [タグ戦略]
+        Latest["latest (main のみ)"]
+        Branch["ブランチ名"]
+        SHA["sha-xxxxxx"]
+        PRTag["pr-N"]
+    end
+
+    Tag --> tags
+```
+
+| 項目 | 値 |
+|---|---|
+| **トリガー** | `main` への push / PR |
+| **ランナー** | `ubuntu-24.04` |
+| **Docker Hub リポジトリ** | `fjlli/receipt-system` |
+| **認証** | Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` |
+| **キャッシュ** | Buildx GHA キャッシュ (`type=gha`) |
+| **PR 時** | ビルドのみ（push しない） |
+| **タグ** | `latest`（main）、ブランチ名、PR 番号、SHA |
+
+## ☁️ 本番環境（Google Cloud Run）
+
+### デプロイ構成
+
+```mermaid
+graph TB
+    subgraph gcp [Google Cloud Platform]
+        CloudRun["Cloud Run"]
+        SecretMgr["Secret Manager"]
+        GCS["Cloud Storage"]
+        Firebase["Firebase Auth"]
+    end
+
+    subgraph docker [Docker Hub]
+        Image["fjlli/receipt-system:latest"]
+    end
+
+    Image -->|"デプロイ"| CloudRun
+    SecretMgr -->|"/app/config にマウント"| CloudRun
+    CloudRun -->|"領収書 JSON 読み書き"| GCS
+    CloudRun -->|"認証検証"| Firebase
+```
+
+### 本番セットアップ手順
+
+1. **Firebase プロジェクト作成** → Authentication 有効化（Google プロバイダ）
+2. **Firebase サービスアカウント** のメールアドレスを取得
+3. **GCS バケット作成** → サービスアカウントに読み書き権限を付与
+4. **`config.json` を作成** → 全キーを実値で埋める
+5. **Secret Manager** に `config.json` を登録
+6. **Cloud Run にデプロイ**:
+   - Docker イメージ: `fjlli/receipt-system`
+   - シークレットを `/app/config/config.json` にマウント
+   - サービスアカウントに Firebase Admin + GCS 権限を付与
+   - Cloud Run の場合 `firebase-service-account-key.json` は不要（サービスアカウント指定で代替）
+7. **Firebase Console** で承認ドメインを追加
+
+### Cloudflare との連携
+
+- CORS 設定で `receipt-printer.lll.fish` を許可
+- リクエストログで `cf-connecting-ip` ヘッダを優先参照
+- CSP で `*.cloudflareinsights.com` を許可（アナリティクス）
+
+## 🔧 補助スクリプト
+
+### `dockerタグ監視くん.sh`
+
+Docker Hub の `fjlli/receipt-system` リポジトリを 3 秒間隔でポーリングし、`sha-*` タグの変更を検知するスクリプト。
+
+- 最新の `sha-*` タグを Docker Hub API から取得
+- 変更があれば標準出力にタグ名を表示 + `security.log` に記録
+- CI/CD パイプラインの完了検知やデプロイトリガーに利用可能
+
+依存: `curl`, `jq`
+
+## ⚠️ 注意点
+
+- `config.json` は `.gitignore` と `.dockerignore` の両方で除外されている
+- 本番では `SESSION_SECRET` 環境変数を必ず設定すること
+- `NODE_ENV=production` を設定しないと Cookie の `secure` フラグが無効になる
+- Cloud Run ではコールドスタート対策として `/_ah/warmup` エンドポイントが用意されている
+- Firebase サービスアカウントキーファイルは Cloud Run では不要（IAM で代替）

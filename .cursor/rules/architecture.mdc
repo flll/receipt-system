@@ -1,0 +1,147 @@
+---
+description: リポジトリ全体のアーキテクチャ・ディレクトリ構造・技術スタック
+globs: 
+alwaysApply: true
+---
+
+# 🏗️ システムアーキテクチャ
+
+## 📌 概要
+
+EPSON ePOS プリンターで領収書を印刷し、Google Cloud Storage (GCS) に保存するウェブアプリケーション。
+Firebase Authentication による Google ログイン認証付き。印刷された領収書は QR コード経由で公開共有可能。
+
+## 📁 ディレクトリ構造
+
+```
+receipt-system/
+├── index.js                  # ✷ Express 5 サーバー（全バックエンドロジック集約）
+├── index.html                # ✷ メイン印刷 UI（認証済みユーザー向け）
+├── package.json              # ✷ npm パッケージ定義（ES Modules）
+├── Dockerfile                # ✷ マルチステージビルド（node:22 → distroless）
+├── EULA.ja.txt               # ✷ EPSON ePOS SDK ライセンス
+├── dockerタグ監視くん.sh       # ✷ Docker Hub タグ変更監視スクリプト
+├── config/
+│   ├── config.json.temp      # ✷ 設定テンプレート（Git 管理対象）
+│   ├── config.json           # ✷ 実設定ファイル（.gitignore 対象）
+│   └── firebase-service-account-key.json  # ✷ Firebase SA鍵（.gitignore 対象）
+├── views/
+│   ├── login.html            # ✷ Google ログインページ
+│   └── receipt.html          # ✷ 公開領収書表示ページ（ダークモード対応）
+├── js/
+│   └── epos-2.27.0.js        # ✷ EPSON ePOS JavaScript SDK
+├── editor/                   # ✷ EPSON ePOS-Print Editor（jQuery UI ベース、開発補助）
+│   ├── index.html
+│   ├── js/                   # ✷ jQuery 1.7.1, jQuery UI 1.8.18, ePOS Editor JS
+│   └── css/                  # ✷ jQuery UI テーマ、Editor CSS
+└── .github/
+    └── workflows/
+        └── docker-publish.yml # ✷ CI/CD: Docker ビルド → Docker Hub プッシュ
+```
+
+## 🔧 技術スタック
+
+| 層 | 技術 | バージョン |
+|---|---|---|
+| ランタイム | Node.js | 22 |
+| 言語 | JavaScript (ES Modules) | — |
+| HTTP フレームワーク | Express | 5.1.0 |
+| 認証（サーバー） | Firebase Admin SDK | 13.5.0 |
+| 認証（クライアント） | Firebase JS SDK (compat) | 11.6.0 |
+| ストレージ | @google-cloud/storage | 7.17.0 |
+| セキュリティ | Helmet | 8.1.0 |
+| セッション | express-session | 1.18.2 |
+| UUID | uuid (v7) | 13.0.0 |
+| プリンター | EPSON ePOS SDK | 2.27.0 |
+| コンテナ | Docker (distroless) | — |
+| CI/CD | GitHub Actions | — |
+| ホスティング | Google Cloud Run | — |
+
+## 🔄 システムフロー
+
+```mermaid
+graph TB
+    subgraph client [ブラウザ]
+        LoginPage["login.html"]
+        MainPage["index.html"]
+        ReceiptPage["receipt.html"]
+    end
+
+    subgraph server ["Express サーバー (index.js)"]
+        AuthMW["認証ミドルウェア"]
+        SessionMW["セッション管理"]
+        CSRF["CSRF 保護"]
+        API["API エンドポイント"]
+    end
+
+    subgraph external [外部サービス]
+        FirebaseAuth["Firebase Authentication"]
+        GCS["Google Cloud Storage"]
+        Printer["EPSON ePOS プリンター"]
+    end
+
+    LoginPage -->|"Google ログイン"| FirebaseAuth
+    FirebaseAuth -->|"ID トークン"| SessionMW
+    SessionMW -->|"セッション Cookie"| MainPage
+
+    MainPage -->|"印刷コマンド (ブラウザ直送)"| Printer
+    MainPage -->|"POST /api/save-receipt"| API
+    API -->|"receipts/{uuid}.json"| GCS
+
+    ReceiptPage -->|"GET /api/receipt/:uuid"| API
+    API -->|"JSON 取得"| GCS
+```
+
+## 🔐 認証フロー
+
+```mermaid
+sequenceDiagram
+    participant U as ユーザー
+    participant B as ブラウザ
+    participant S as Express サーバー
+    participant F as Firebase Auth
+
+    U->>B: /login にアクセス
+    B->>S: GET /api/firebase-config
+    S-->>B: {apiKey, authDomain, projectId}
+    B->>F: Google ポップアップログイン
+    F-->>B: ID トークン
+    B->>S: POST /sessionLogin {idToken}
+    S->>F: verifyIdToken(idToken)
+    F-->>S: デコード済みトークン
+    S->>S: allowedEmails チェック
+    S-->>B: セッション Cookie 発行 (5日間)
+    B->>S: GET / (Cookie 付き)
+    S->>F: verifySessionCookie
+    S-->>B: index.html (CSRF トークン埋め込み)
+```
+
+## 🖨️ 印刷・保存フロー
+
+```mermaid
+sequenceDiagram
+    participant U as ユーザー
+    participant B as ブラウザ
+    participant P as ePOS プリンター
+    participant S as Express サーバー
+    participant G as GCS
+
+    U->>B: 金額入力 → 印刷ボタン
+    B->>S: GET /api/generate-uuid
+    S-->>B: UUID v7
+    B->>B: ePOSBuilder でレイアウト構築
+    B->>P: ePOSPrint 送信 (ブラウザ→プリンタ直通)
+    P-->>B: 印刷結果
+    B->>S: POST /api/save-receipt (Bearer + CSRF)
+    S->>G: receipts/{uuid}.json 保存
+    G-->>S: 保存完了
+    S-->>B: {success: true}
+```
+
+## ⚠️ 重要な設計上のポイント
+
+- **単一ファイルアーキテクチャ**: バックエンドロジックは全て `index.js` に集約されている
+- **DB 不使用**: データ永続化は GCS の JSON オブジェクト (`receipts/{uuid}.json`) のみ
+- **プリンタ直送**: 印刷はブラウザから ePOS プリンタの `service.cgi` へ直接送信（サーバー経由ではない）
+- **設定ホットリロード**: `config.json` の変更は `fs.watch` で自動検知・再読込
+- **TypeScript 未導入**: 全て JavaScript（ES Modules, `type: "module"`）

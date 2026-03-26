@@ -1,0 +1,162 @@
+---
+description: フロントエンドのページ構成・状態管理・API連携・印刷フロー
+globs: index.html,views/**
+alwaysApply: false
+---
+
+# 🖥️ フロントエンド詳細
+
+フレームワーク不使用の素の HTML/CSS/JavaScript。ビルドツールやバンドラーは無し。
+
+## 📄 ページ構成
+
+### 1. `/login` — ログインページ (`views/login.html`)
+
+- Firebase JS SDK (compat) を CDN から読み込み
+- `GET /api/firebase-config` で Firebase 設定を取得（apiKey, authDomain, projectId のみ）
+- Google ポップアップ認証 → ID トークン取得 → `POST /sessionLogin` でセッション確立
+- 成功時 `window.location.href = '/'` でメインページへ遷移
+
+### 2. `/` — メイン印刷 UI (`index.html`)
+
+- サーバーサイドで CSRF トークンが `<meta name="csrf-token">` に埋め込まれて配信される
+- `window.onload` → `loadConfig()` で設定・CSRF・Firebase 初期化を順次実行
+- 金額入力（0〜20,000 円）と印刷ボタンの最小限 UI
+- ログイン状態表示、ログイン/ログアウトボタン
+
+### 3. `/receipt?uuid=xxx` — 公開領収書表示 (`views/receipt.html`)
+
+- 認証不要の公開ページ
+- クエリパラメータ `uuid` から `GET /api/receipt/:uuid` で領収書データ取得
+- CSS 変数 + `prefers-color-scheme: dark` でダークモード対応
+- Google Fonts `Noto Sans JP` 使用
+- 外部 QR API (`api.qrserver.com`) で現在ページの QR コードを表示
+- レスポンシブデザイン（モバイル対応）
+
+### 4. `/editor` — ePOS-Print Editor (`editor/`)
+
+- EPSON 公式の ePOS 印刷レイアウトエディタ
+- jQuery 1.7.1 + jQuery UI 1.8.18 ベース
+- アプリ本体とは独立した開発補助ツール
+- ローカルストレージで設定を保持
+
+## 🧠 状態管理
+
+フレームワーク・状態管理ライブラリは不使用。グローバル変数と DOM 操作で完結。
+
+### `index.html` のグローバル変数
+
+| 変数 | 型 | 説明 |
+|---|---|---|
+| `CONFIG` | Object | `config.json` から読み込んだ設定（printerIP, amount, uuid, receiptURL 等） |
+| `currentUser` | Firebase User / null | Firebase Auth の現在ログインユーザー |
+
+### `login.html` のグローバル変数
+
+| 変数 | 型 | 説明 |
+|---|---|---|
+| `firebaseInitialized` | boolean | Firebase の二重初期化防止フラグ |
+
+### 状態更新パターン
+
+```
+loadConfig() → CONFIG 設定 → Firebase 初期化 → onAuthStateChanged → UI 更新
+                                                     ↓
+                                              currentUser セット
+                                              loginStatus テキスト更新
+                                              printButton 有効/無効化
+```
+
+## 🔗 API 連携パターン
+
+全て `fetch` API を使用（同一オリジン中心）。
+
+### 共通パターン
+
+```javascript
+// ✷ CSRF トークン取得 → meta タグに保存
+const csrfResponse = await fetch('/api/csrf-token');
+const { csrfToken } = await csrfResponse.json();
+document.querySelector('meta[name="csrf-token"]').content = csrfToken;
+
+// ✷ 認証付き POST（Bearer + CSRF）
+await fetch('/api/save-receipt', {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+        'X-CSRF-Token': csrfToken
+    },
+    credentials: 'include',
+    body: JSON.stringify(data)
+});
+```
+
+### ページ別 API 利用
+
+| ページ | API | 用途 |
+|---|---|---|
+| `login.html` | `GET /api/firebase-config` | Firebase 初期化設定取得 |
+| `login.html` | `POST /sessionLogin` | ID トークン → セッション Cookie |
+| `index.html` | `GET /config/config.json` | サーバー設定全体取得（認証済み） |
+| `index.html` | `GET /api/csrf-token` | CSRF トークン取得 |
+| `index.html` | `GET /api/generate-uuid` | UUID v7 生成 |
+| `index.html` | `POST /api/save-receipt` | 領収書データ保存（Bearer + CSRF） |
+| `receipt.html` | `GET /api/receipt/:uuid` | 領収書データ取得（認証不要） |
+
+## 🖨️ 印刷フロー詳細
+
+ブラウザからプリンタへ **直接** 送信する設計（サーバー経由ではない）。
+
+### 印刷 URL 構築
+
+```
+{CONFIG.protocol}://{CONFIG.printerIP}/cgi-bin/epos/service.cgi?devid={CONFIG.devid}&timeout=10000
+```
+
+### ePOSBuilder によるレイアウト構築
+
+```
+1. addTextLang('ja') — 日本語設定
+2. addSymbol(uuid, PDF417) — 上部 PDF417 バーコード
+3. addPageBegin → addPageArea(0, 0, 550, 870) — ページモード開始
+4. 「領 収 証」タイトル（二重サイズ、中央）
+5. 「　　　　　　　様」宛名欄
+6. 金額表示（全角、太字、下線）
+7. 「但し、お品代として / 上記正に領収いたしました。」
+8. UUID(v7) テキスト
+9. 発行日時（右側）
+10. QR コード（receiptURL + uuid、右側）
+11. 発行者名、住所、電話番号（右側）
+12. addPageEnd → addCut — ページモード終了 + カット
+```
+
+### 印刷後の処理
+
+```
+印刷成功 (epos.onreceive, res.success === true)
+  → POST /api/save-receipt で GCS に保存
+  → alert('印刷が完了しました')
+
+印刷失敗
+  → alert('印刷に失敗しました')
+
+保存失敗（印刷は成功）
+  → alert('印刷は成功しましたが、データの保存に失敗しました')
+```
+
+## 🎨 スタイリング
+
+| ページ | 手法 | 特徴 |
+|---|---|---|
+| `index.html` | インライン `style` 属性 | 最小限 UI、max-width: 600px |
+| `login.html` | インライン `style` 属性 | 中央揃え、シンプル |
+| `receipt.html` | `<style>` 埋め込み + CSS 変数 | ダークモード対応、レスポンシブ、Noto Sans JP |
+| `editor/` | jQuery UI Smoothness テーマ + Editor CSS | EPSON 公式スタイル |
+
+## ⚠️ 注意点
+
+- `index.html` 内の Firebase 初期化は `loadConfig()` 内で行われ、既存アプリを `firebase.apps.forEach(app => app.delete())` で削除してから再初期化する
+- 金額バリデーションは 0〜20,000 円の範囲チェックのみ（クライアントサイド）
+- `receipt.html` の QR コード生成は外部 API (`api.qrserver.com`) に依存
+- ePOS SDK (`epos-2.27.0.js`) は EULA に基づくライセンス制約あり
