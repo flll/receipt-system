@@ -12,7 +12,7 @@
 
 ## システム要件
 
-- Node.js 22.11.0以上
+- Go 1.24以上
 - EPSONのePOS対応プリンター
 - Google Cloud Platform アカウント
 - Firebase プロジェクト
@@ -72,7 +72,7 @@
 1. サーバーの起動:
 
 ```bash
-npm start
+go run .
 ```
 
 2. ブラウザでアクセス:
@@ -90,18 +90,6 @@ npm start
 - 保存データの暗号化状態の確認
 - 古いデータの自動削除ポリシーの確認
 
-### 推奨される定期的なセキュリティチェック項目
-1. 依存パッケージの脆弱性スキャン
-```bash
-npm run security-full
-```
-
-2. コードの静的解析
-```bash
-npm install -g eslint
-eslint .
-```
-
 ## 技術仕様
 
 ### フロントエンド
@@ -109,9 +97,9 @@ eslint .
 - Firebase Authentication SDK
 
 ### バックエンド
-- Express.js
-- Firebase Admin SDK
-- Google Cloud Storage
+- Go (net/http 標準ライブラリ)
+- Firebase Admin SDK for Go
+- Google Cloud Storage for Go
 - EPSONのePOS SDK
 
 ### データストレージ
@@ -120,6 +108,19 @@ eslint .
 
 ### 環境変数
 - `PORT`: サーバーポート（デフォルト: 8080）
+- `SESSION_SECRET`: セッション用シークレット（Go版では未使用）
+- `NODE_ENV`: `production` で Cookie の secure フラグ等を有効化
+
+## ビルド
+
+```bash
+# ローカルビルド
+go build -o receipt-system .
+
+# Docker ビルド
+docker build -t receipt-system .
+docker run -p 8080:8080 -v $(pwd)/config:/app/config receipt-system
+```
 
 ## トラブルシューティング
 

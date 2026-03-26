@@ -1,12 +1,12 @@
 ---
 description: バックエンドの API エンドポイント・ミドルウェア・認証・データモデル
-globs: index.js
+globs: main.go
 alwaysApply: false
 ---
 
 # 🔌 バックエンド詳細
 
-全てのバックエンドロジックは `index.js` に集約されている（Express 5, ES Modules）。
+全てのバックエンドロジックは `main.go` に集約（Go, net/http 標準ライブラリ）。
 
 ## 📡 API エンドポイント一覧
 
@@ -24,7 +24,7 @@ alwaysApply: false
 | メソッド | パス | 認証 | 説明 |
 |---|---|---|---|
 | POST | `/api/save-receipt` | Bearer + CSRF | 領収書データを GCS に保存 (`receipts/{uuid}.json`) |
-| GET | `/api/receipt/:uuid` | **不要（公開）** | GCS から領収書 JSON を取得して返却 |
+| GET | `/api/receipt/{uuid}` | **不要（公開）** | GCS から領収書 JSON を取得して返却 |
 | GET | `/api/generate-uuid` | セッション | UUID v7 を生成して返却 |
 
 ### ページ配信・設定系
@@ -35,7 +35,7 @@ alwaysApply: false
 | GET | `/login` | 不要 | `views/login.html` を返却 |
 | GET | `/receipt` | 不要 | `views/receipt.html` を返却 |
 | GET | `/config/config.json` | セッション + allowedEmails | サーバー設定全体を JSON で返却（no-cache） |
-| GET | `/_ah/warmup` | 不要 | Cloud Run ウォームアップ（設定読込 + バケット存在確認） |
+| GET | `/_ah/warmup` | 不要 | Cloud Run ウォームアップ（バケット存在確認） |
 
 ### 静的ファイル
 
@@ -44,65 +44,32 @@ alwaysApply: false
 | `/js/*` | `js/` | ePOS SDK |
 | `/editor/*` | `editor/` | ePOS-Print Editor |
 
-## 🛡️ ミドルウェアチェーン（適用順序）
+## 🛡️ ミドルウェア
 
-```mermaid
-graph TD
-    A["express.json + cookieParser"] --> B["リクエストログ (IP, method, path)"]
-    B --> C["CORS (許可オリジン制御)"]
-    C --> D["express-session"]
-    D --> E["GET /api/csrf-token (この位置で定義)"]
-    E --> F["csrfMiddleware"]
-    F --> G["Helmet (CSP, HSTS 等)"]
-    G --> H["sessionCheckMiddleware"]
-    H --> I["静的ファイル配信 (/js, /editor, /login, /receipt)"]
-    I --> J["authCheckMiddleware"]
-    J --> K["各ルートハンドラ"]
-    K --> L["グローバルエラーハンドラ"]
-```
+Go の `middleware()` メソッドで全リクエストに適用:
 
-### 各ミドルウェアの詳細
+1. **リクエストログ** — `cf-connecting-ip` (Cloudflare) 優先で IP 記録
+2. **CORS** — 許可オリジン制御、`OPTIONS` → 204
+3. **セキュリティヘッダ** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS (production)
+4. **CSP** — Firebase, Google APIs, Cloudflare Insights, プリンタ IP を許可
 
-| ミドルウェア | 役割 |
-|---|---|
-| **リクエストログ** | `cf-connecting-ip` (Cloudflare) または `req.ip` でクライアント IP を記録 |
-| **CORS** | `receipt-printer.lll.fish`, `localhost:8080`, プリンタ IP を許可。`OPTIONS` → 204 |
-| **express-session** | Cookie 名: `__Host-session`、`SESSION_SECRET` 環境変数使用、24時間有効 |
-| **csrfMiddleware** | ヘッダ `X-CSRF-Token` と Cookie `csrf-token` の一致を検証。GET/公開パス/プリンタ IP はスキップ |
-| **Helmet** | CSP（Firebase, Google APIs, Cloudflare Insights 許可）、HSTS、X-Content-Type-Options 等 |
-| **sessionCheckMiddleware** | セッション Cookie 未保持 → `/login` リダイレクト。公開パスはスキップ |
-| **authCheckMiddleware** | セッション Cookie を `verifySessionCookie` で検証 + `allowedEmails` チェック |
+### CSRF 検証
 
-### 公開パス（認証スキップ対象）
+`validateCSRF()` メソッドで `POST /api/save-receipt` 時に検証:
+- ヘッダ `X-CSRF-Token` と Cookie `csrf-token` の一致を確認
+- プリンタ IP からのリクエストはスキップ
 
-```
-/login, /receipt, /api/receipt/:uuid, /api/firebase-config, /sessionLogin, /logout, /_ah/warmup, /editor
-```
-
-## 🔐 認証・認可の仕組み
+## 🔐 認証・認可
 
 ### 二重認証パターン
 
-1. **セッション Cookie 認証** (`checkAuthAndAllowedEmail`, `authCheckMiddleware`)
-   - ページアクセス時に使用（`/`, `/config/config.json`）
-   - `admin.auth().verifySessionCookie(cookie, true)` で検証
-   - `config.allowedEmails` に含まれないメールは 403 or `/login` リダイレクト
+1. **セッション Cookie 認証** (`verifySession`, `VerifySessionCookieAndCheckRevoked`)
+   - ページアクセス時（`/`, `/config/config.json`, `/api/generate-uuid`）
+   - `allowedEmails` チェック付き
 
-2. **Bearer トークン認証** (`authMiddleware`)
-   - API 呼び出し時に使用（`/api/save-receipt`）
+2. **Bearer トークン認証** (`verifyBearerToken`)
+   - API 呼び出し時（`/api/save-receipt`）
    - `Authorization: Bearer <Firebase ID Token>` ヘッダ
-   - `admin.auth().verifyIdToken(token)` で検証
-   - `config.allowedEmails` チェック付き
-
-### セッション Cookie 発行フロー
-
-```
-POST /sessionLogin
-→ verifyIdToken(idToken)
-→ allowedEmails チェック（NG → revokeRefreshTokens → 403）
-→ createSessionCookie(idToken, {expiresIn: 5日})
-→ Cookie "session" セット
-```
 
 ## 📦 データモデル
 
@@ -121,36 +88,11 @@ POST /sessionLogin
 
 ### 設定ファイル (`config/config.json`)
 
-```json
-{
-  "protocol": "https",
-  "printerIP": "xxx.xxx.xxx.xxx",
-  "devid": "local_printer",
-  "phone": "xxx-xxxx-xxxx",
-  "address": "東京都...",
-  "amount": "0",
-  "receiptURL": "https://your-domain.com/receipt?uuid=",
-  "issuerName": "株式会社...",
-  "projectId": "lll-fish",
-  "bucketName": "your-bucket-name",
-  "firebaseApiKey": "your-api-key",
-  "firebaseAuthDomain": "your-project-id.firebaseapp.com",
-  "firebaseProjectId": "your-project-id",
-  "allowedEmails": ["example@domain.com"]
-}
-```
+Config 構造体で管理。`sync.RWMutex` でスレッドセーフに読み書き。
 
 ### 環境変数
 
 | 変数 | 用途 | デフォルト |
 |---|---|---|
 | `PORT` | リスンポート | `8080` |
-| `SESSION_SECRET` | express-session の秘密鍵 | `'your-secret-key'` |
-| `NODE_ENV` | `production` で Cookie secure 化 | — |
-
-## ⚠️ 注意点
-
-- `config.json` は `fs.watch` でホットリロードされる（ファイル変更 → `config` 変数リセット → 再読込）
-- Firebase 初期化失敗時は `process.exit(1)` で即終了
-- `/api/receipt/:uuid` は認証不要（公開 URL として QR コード等から直接アクセスされる想定）
-- `express-session` の secret がデフォルト値のまま運用されるとセキュリティリスク
+| `NODE_ENV` | `production` で Cookie secure 化、HSTS 有効化 | — |

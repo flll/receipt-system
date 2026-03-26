@@ -6,108 +6,66 @@ alwaysApply: true
 
 # 📏 コーディング規約・注意事項
 
-## 言語・モジュール
+## 言語
 
-- **JavaScript（ES Modules）** を使用（`package.json` に `"type": "module"`）
-- `import` / `export` 構文を使う（`require` は不可）
-- **TypeScript は未導入**（将来的な導入の余地あり、`@types/cookie-parser` が devDependencies に存在）
-- Node.js 22 以上が前提
+- **Go** を使用（net/http 標準ライブラリ、フレームワーク不使用）
+- Go Modules で依存管理（`go.mod` / `go.sum`）
+- フロントエンドは素の HTML/CSS/JavaScript（ビルドツール不使用）
 
 ## コードスタイル
 
-- ESLint 設定ファイルは未作成（`eslint-plugin-security` が devDependencies にあるが、設定は未整備）
 - コメントには先頭に `✷` を付与する（後から検索・削除しやすくするため）
-- 変数名は camelCase を使用
+- 変数名は camelCase を使用（Go の export ルールに従い、公開は PascalCase）
 - コメントは日本語で記述
 - エラーハンドリングは必ず実装する
 
 ## プロジェクト構造
 
-- **単一ファイルアーキテクチャ**: バックエンドロジックは `index.js` に全集約
-- フロントエンドはフレームワーク不使用（素の HTML/JS）
-- ビルドツール・バンドラー不使用
-- テストフレームワーク未導入
+- **単一ファイルアーキテクチャ**: 全バックエンドロジックは `main.go` に集約
+- `Server` 構造体に Config, AuthClient, GCSBucket, Mux を保持
+- `sync.RWMutex` で Config のスレッドセーフな読み書き
 
 ## 🔒 セキュリティ
 
-### npm scripts
-
-| コマンド | 説明 |
-|---|---|
-| `npm run security-check` | `npm audit` を実行 |
-| `npm run snyk-test` | Snyk で脆弱性スキャン |
-| `npm run outdated` | 古いパッケージの確認 |
-| `npm run security-full` | 上記3つを一括実行 |
-| `npm run prestart` | `npm start` 前に自動で `security-check` 実行 |
-
 ### セキュリティ機構（実装済み）
 
-- **Helmet**: CSP, HSTS, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection 等
+- **CSP ヘッダ**: Firebase, Google APIs, Cloudflare Insights 許可
+- **HSTS**: production 環境のみ有効
 - **CSRF 保護**: Cookie + ヘッダトークン一致検証
-- **Firebase Auth**: ID トークン検証 + セッション Cookie
+- **Firebase Auth**: ID トークン検証 + セッション Cookie (`VerifySessionCookieAndCheckRevoked`)
 - **allowedEmails**: ホワイトリスト方式のアクセス制御
-- **express-session**: HTTP-only, Secure (production), SameSite Cookie
-- **trust proxy**: Cloudflare/ロードバランサー経由のリアル IP 取得
+- **Graceful Shutdown**: SIGTERM/SIGINT で安全に停止
 
 ### セキュリティ上の注意
 
-- `SESSION_SECRET` のデフォルト値 `'your-secret-key'` は本番では必ず変更すること
-- `config.json` に機密情報（API キー、許可メールリスト等）が含まれる → Git にコミットしない
-- `/api/receipt/:uuid` は認証不要（UUID を知っていれば誰でもアクセス可能）
+- `/api/receipt/{uuid}` は認証不要（UUID を知っていれば誰でもアクセス可能）
 - CSP で `'unsafe-inline'` と `'unsafe-eval'` が許可されている（ePOS SDK の要件）
 
 ## 🔑 機密情報管理
 
 ### Git で管理しないファイル（`.gitignore`）
 
-```
-config/*config*.json          # ✷ アプリ設定（API キー、許可メール等）
-config/*service-account-key*.json  # ✷ Firebase サービスアカウント鍵
-*.env, .env.*                 # ✷ 環境変数ファイル
-security.log                  # ✷ セキュリティログ
-```
-
-### Docker イメージに含めないファイル（`.dockerignore`）
-
-```
-config/*config*.json          # ✷ 実行時にマウント
-config/*service-account-key*.json  # ✷ Cloud Run では IAM で代替
-.git, .github                 # ✷ VCS 情報
-*.env, .env.*                 # ✷ 環境変数
-*.md, *.log                   # ✷ ドキュメント・ログ
-```
+- `config/*config*.json` — アプリ設定（API キー、許可メール等）
+- `config/*service-account-key*.json` — Firebase サービスアカウント鍵
+- `receipt-system` — ビルド済みバイナリ
+- `*.env` — 環境変数ファイル
 
 ### テンプレートファイル
 
 - `config/config.json.temp` — 設定のプレースホルダ付きテンプレート（Git 管理対象）
-- 新規セットアップ時: `cp config/config.json.temp config/config.json` → 実値を埋める
 
 ## 📦 依存関係
 
-### 本番依存（dependencies）
-
 | パッケージ | 用途 |
 |---|---|
-| `express` ^5.1.0 | HTTP フレームワーク |
-| `firebase-admin` ^13.5.0 | Firebase サーバーサイド SDK |
-| `@google-cloud/storage` ^7.17.0 | GCS クライアント |
-| `helmet` ^8.1.0 | セキュリティヘッダ |
-| `express-session` ^1.18.2 | セッション管理 |
-| `cookie-parser` ^1.4.7 | Cookie パース |
-| `uuid` ^13.0.0 | UUID v7 生成 |
-
-### 開発依存（devDependencies）
-
-| パッケージ | 用途 |
-|---|---|
-| `eslint-plugin-security` ^3.0.1 | セキュリティ関連 ESLint ルール |
-| `snyk` ^1.1296.2 | 脆弱性スキャン |
-| `@types/cookie-parser` ^1.4.9 | 型定義（TypeScript 導入準備？） |
+| `firebase.google.com/go/v4` | Firebase Admin SDK |
+| `cloud.google.com/go/storage` | GCS クライアント |
+| `github.com/google/uuid` | UUID v7 生成 |
+| `google.golang.org/api/option` | GCP クレデンシャル |
 
 ## ⚖️ ライセンス
 
 - **EPSON ePOS SDK** (`js/epos-2.27.0.js`, `editor/`): EULA に基づく利用制約あり → `EULA.ja.txt` を確認
-- リポジトリ自体のライセンスは未指定（`LICENSE` ファイル無し）
 
 ## 🔄 開発ワークフロー
 
@@ -115,15 +73,14 @@ config/*service-account-key*.json  # ✷ Cloud Run では IAM で代替
 # ✷ ローカル開発
 cp config/config.json.temp config/config.json  # 初回のみ
 # config.json を編集して実値を入力
-npm install
-npm start  # prestart で npm audit → node index.js
+go run .
+
+# ✷ ビルド
+go build -o receipt-system .
 
 # ✷ Docker ローカルテスト
 docker build -t receipt-system .
 docker run -p 8080:8080 -v $(pwd)/config:/app/config receipt-system
-
-# ✷ セキュリティチェック
-npm run security-full
 
 # ✷ デプロイ（main へ push → GitHub Actions → Docker Hub）
 git push origin main

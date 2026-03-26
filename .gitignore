@@ -2,7 +2,11 @@
 config/*config*.json
 config/*service-account-key*.json
 
-# dependencies
+# Go
+receipt-system
+*.exe
+
+# Node.js (legacy)
 /node_modules
 
 # config
