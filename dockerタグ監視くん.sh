@@ -4,11 +4,10 @@ TEMP_FILE="security.log"
 
 echo "タグの監視を開始します..."
 
-get_latest_sha_tag() {
-    curl -s "https://hub.docker.com/v2/repositories/fjlli/receipt-system/tags/" | \
-    jq -r '.results[].name' | \
-    grep '^sha-' | \
-    head -n 1
+# ✷ latestタグのManifest digestを取得
+get_latest_digest() {
+    curl -s "https://hub.docker.com/v2/repositories/fjlli/receipt-system/tags/latest" | \
+    jq -r '.digest'
 }
 
 if [ ! -f "$TEMP_FILE" ]; then
@@ -16,11 +15,12 @@ if [ ! -f "$TEMP_FILE" ]; then
 fi
 
 while true; do
-    current_tag=$(get_latest_sha_tag)
-    previous_tag=$(cat "$TEMP_FILE")
-    if [ "$current_tag" != "$previous_tag" ] && [ -n "$current_tag" ]; then
-        echo "fjlli/receipt-system:${current_tag}"
-        echo "$current_tag" > "$TEMP_FILE"
+    current_digest=$(get_latest_digest)
+    previous_digest=$(cat "$TEMP_FILE")
+    if [ "$current_digest" != "$previous_digest" ] && [ -n "$current_digest" ] && [ "$current_digest" != "null" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') fjlli/receipt-system@${current_digest}"
+        echo "$current_digest" > "$TEMP_FILE"
+        echo "================================================"
     fi
-    sleep 3
+    sleep 5
 done
