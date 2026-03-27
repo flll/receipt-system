@@ -18,27 +18,21 @@
 
     async function loadConfig() {
         try {
-            const response = await fetch('./config/config.json');
-            if (!response.ok) {
+            // ✷ アプリ設定と Firebase 設定を並列取得
+            const [configRes, firebaseRes] = await Promise.all([
+                fetch('./config/config.json'),
+                fetch('/api/firebase-config'),
+            ]);
+            if (!configRes.ok) {
                 throw new Error('設定ファイルの読み込みに失敗しました');
             }
-            CONFIG = await response.json();
-
-            // CSRFトークンを取得
-            const csrfResponse = await fetch('/api/csrf-token');
-            if (csrfResponse.ok) {
-                const { csrfToken } = await csrfResponse.json();
-                document.querySelector('meta[name="csrf-token"]').content = csrfToken;
+            if (!firebaseRes.ok) {
+                throw new Error('Firebase設定の取得に失敗しました');
             }
-
-            const firebaseConfig = {
-                apiKey: CONFIG.firebaseApiKey,
-                authDomain: CONFIG.firebaseAuthDomain,
-                projectId: CONFIG.firebaseProjectId
-            };
+            CONFIG = await configRes.json();
+            const firebaseConfig = await firebaseRes.json();
 
             firebase.apps.forEach(app => app.delete());
-
             firebase.initializeApp(firebaseConfig);
 
             checkAuthState();
@@ -50,29 +44,14 @@
         }
     }
 
+    // ✷ allowedEmails のチェックはサーバー側（セッション認証）で実施済み
     function checkAuthState() {
         firebase.auth().onAuthStateChanged(async (user) => {
             if (user) {
-                try {
-                    const response = await fetch('./config/config.json');
-                    const config = await response.json();
-
-                    if (config.allowedEmails.includes(user.email)) {
-                        currentUser = user;
-                        document.getElementById('loginStatus').textContent =
-                            `ログイン中: ${user.email}`;
-                        document.getElementById('printButton').disabled = false;
-                    } else {
-                        await firebase.auth().signOut();
-                        alert('このメールアドレスには操作権限がありません');
-                        document.getElementById('loginStatus').textContent =
-                            'ログインしていません';
-                        document.getElementById('printButton').disabled = true;
-                    }
-                } catch (error) {
-                    console.error('設定読み込みエラー:', error);
-                    alert('設定の読み込みに失敗しました');
-                }
+                currentUser = user;
+                document.getElementById('loginStatus').textContent =
+                    `ログイン中: ${user.email}`;
+                document.getElementById('printButton').disabled = false;
             } else {
                 currentUser = null;
                 document.getElementById('loginStatus').textContent =
