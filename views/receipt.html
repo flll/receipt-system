@@ -211,7 +211,7 @@
             try {
                 const response = await fetch(`/api/receipt/${uuid}`);
                 if (!response.ok) {
-                    throw new Error('指定されたUUIDの領収書データが存在し���せん');
+                    throw new Error('指定されたUUIDの領収書データが存在しません');
                 }
 
                 const data = await response.json();

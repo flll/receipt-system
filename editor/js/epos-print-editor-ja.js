@@ -1,4 +1,4 @@
-﻿/*! ePOS-Print Editor Version 6.0.3 Copyright (C) Seiko Epson Corporation 2012-2023. All rights reserved. */
+/*! ePOS-Print Editor Version 6.0.3 Copyright (C) Seiko Epson Corporation 2012-2023. All rights reserved. */
 
 // 機種情報
 var modelinfo = {
