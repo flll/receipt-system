@@ -227,8 +227,12 @@ func getCookie(r *http.Request, name string) string {
 	return c.Value
 }
 
+// ✷ Cloud Run では K_SERVICE が自動セットされるためフォールバック判定に使用
 func isProduction() bool {
-	return os.Getenv("NODE_ENV") == "production"
+	if os.Getenv("ENV") == "production" || os.Getenv("GO_ENV") == "production" {
+		return true
+	}
+	return os.Getenv("K_SERVICE") != ""
 }
 
 // ✷ ルーティング設定
@@ -271,7 +275,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		// ✷ CORS
 		cfg := s.getConfig()
 		allowedOrigins := map[string]bool{
-			"receipt-printer.lll.fish":                true,
+			"https://receipt-printer.lll.fish":        true,
 			"http://localhost:8080":                   true,
 			"https://localhost:8080":                  true,
 			"https://" + cfg.PrinterIP:                true,
@@ -414,6 +418,24 @@ func (s *Server) handleCSRFToken(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
+	// ✷ ログイン CSRF 防止: Origin ヘッダーで同一オリジンを検証
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		cfg := s.getConfig()
+		allowedOrigins := map[string]bool{
+			"https://receipt-printer.lll.fish": true,
+			"http://localhost:8080":            true,
+			"https://localhost:8080":           true,
+			"https://" + cfg.PrinterIP:         true,
+			"http://" + cfg.PrinterIP:          true,
+		}
+		if !allowedOrigins[origin] {
+			log.Printf("sessionLogin Origin拒否: %s", origin)
+			writeJSON(w, 403, map[string]string{"error": "不正なリクエスト元です"})
+			return
+		}
+	}
+
 	var body struct {
 		IDToken string `json:"idToken"`
 	}
@@ -493,6 +515,15 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetReceipt(w http.ResponseWriter, r *http.Request) {
 	uuidStr := r.PathValue("uuid")
 
+	// ✷ パストラバーサル防止: UUID 形式のバリデーション
+	if _, err := uuid.Parse(uuidStr); err != nil {
+		writeJSON(w, 400, map[string]any{
+			"success": false,
+			"error":   "無効なUUID形式です",
+		})
+		return
+	}
+
 	ctx := r.Context()
 	obj := s.gcsBucket.Object(fmt.Sprintf("receipts/%s.json", uuidStr))
 	reader, err := obj.NewReader(ctx)
@@ -509,7 +540,6 @@ func (s *Server) handleGetReceipt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]any{
 			"success": false,
 			"error":   "サーバーエラーが発生しました",
-			"details": err.Error(),
 		})
 		return
 	}
@@ -587,6 +617,12 @@ func (s *Server) handleSaveReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ✷ GCS 任意パス書き込み防止: UUID 形式のバリデーション
+	if _, err := uuid.Parse(body.UUID); err != nil {
+		writeJSON(w, 400, map[string]any{"success": false, "error": "無効なUUID形式です"})
+		return
+	}
+
 	receiptData, _ := json.MarshalIndent(body, "", "  ")
 	ctx := r.Context()
 	obj := s.gcsBucket.Object(fmt.Sprintf("receipts/%s.json", body.UUID))
@@ -647,8 +683,18 @@ func (s *Server) handleConfigJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
+	// ✷ フロントエンドに必要なフィールドのみ返却（allowedEmails 等の機密情報を除外）
 	cfg := s.getConfig()
-	writeJSON(w, 200, cfg)
+	writeJSON(w, 200, map[string]string{
+		"protocol":   cfg.Protocol,
+		"printerIP":  cfg.PrinterIP,
+		"devid":      cfg.DevID,
+		"phone":      cfg.Phone,
+		"address":    cfg.Address,
+		"amount":     cfg.Amount,
+		"receiptURL": cfg.ReceiptURL,
+		"issuerName": cfg.IssuerName,
+	})
 }
 
 func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
@@ -696,16 +742,13 @@ func (s *Server) verifySession(r *http.Request) bool {
 	return s.isEmailAllowed(email)
 }
 
-// ✷ CSRF 検証（プリンタ IP・公開パスをスキップ）
+// ✷ CSRF 検証（プリンタ IP からの直接リクエストのみスキップ）
 func (s *Server) validateCSRF(r *http.Request) bool {
 	cfg := s.getConfig()
-	clientIP := getClientIP(r)
 
-	// ✷ プリンタからのリクエストはスキップ
-	if r.Host == cfg.PrinterIP ||
-		r.Header.Get("X-Forwarded-Host") == cfg.PrinterIP ||
-		strings.Contains(r.Header.Get("Origin"), cfg.PrinterIP) ||
-		clientIP == cfg.PrinterIP {
+	// ✷ プリンタからの直接リクエストは Host ヘッダのみで判定
+	// X-Forwarded-Host や Origin は攻撃者が偽装可能なため使用しない
+	if r.Host == cfg.PrinterIP {
 		return true
 	}
 
@@ -713,7 +756,7 @@ func (s *Server) validateCSRF(r *http.Request) bool {
 	csrfCookie := getCookie(r, "csrf-token")
 
 	if csrfHeader == "" || csrfCookie == "" || csrfHeader != csrfCookie {
-		log.Printf("CSRF検証失敗: path=%s clientIP=%s origin=%s", r.URL.Path, clientIP, r.Header.Get("Origin"))
+		log.Printf("CSRF検証失敗: path=%s clientIP=%s origin=%s", r.URL.Path, getClientIP(r), r.Header.Get("Origin"))
 		return false
 	}
 	return true
