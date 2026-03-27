@@ -30,7 +30,7 @@ alwaysApply: false
 - クエリパラメータ `uuid` から `GET /api/receipt/:uuid` で領収書データ取得
 - CSS 変数 + `prefers-color-scheme: dark` でダークモード対応
 - Google Fonts `Noto Sans JP` 使用
-- 外部 QR API (`api.qrserver.com`) で現在ページの QR コードを表示
+- サーバーサイド QR 生成 API (`GET /api/qr/{uuid}`) で QR コードを表示（外部通信なし）
 - レスポンシブデザイン（モバイル対応）
 
 ### 4. `/editor` — ePOS-Print Editor (`editor/`)
@@ -103,6 +103,7 @@ await fetch('/api/save-receipt', {
 | `index.html` | `GET /api/generate-uuid` | UUID v7 生成 |
 | `index.html` | `POST /api/save-receipt` | 領収書データ保存（Bearer + CSRF） |
 | `receipt.html` | `GET /api/receipt/:uuid` | 領収書データ取得（認証不要） |
+| `receipt.html` | `GET /api/qr/:uuid` | QR コード PNG 取得（認証不要） |
 
 ## 🖨️ 印刷フロー詳細
 
@@ -158,5 +159,5 @@ await fetch('/api/save-receipt', {
 
 - `index.html` 内の Firebase 初期化は `loadConfig()` 内で行われ、既存アプリを `firebase.apps.forEach(app => app.delete())` で削除してから再初期化する
 - 金額バリデーションは 0〜20,000 円の範囲チェックのみ（クライアントサイド）
-- `receipt.html` の QR コード生成は外部 API (`api.qrserver.com`) に依存
+- `receipt.html` の QR コード生成はサーバーサイド API (`/api/qr/{uuid}`) で行う（外部通信なし、UUID 専用で踏み台防止）
 - ePOS SDK (`epos-2.27.0.js`) は EULA に基づくライセンス制約あり

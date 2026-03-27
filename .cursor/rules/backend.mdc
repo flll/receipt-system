@@ -25,6 +25,7 @@ alwaysApply: false
 |---|---|---|---|
 | POST | `/api/save-receipt` | Bearer + CSRF | 領収書データを GCS に保存 (`receipts/{uuid}.json`) |
 | GET | `/api/receipt/{uuid}` | **不要（公開）** | GCS から領収書 JSON を取得して返却 |
+| GET | `/api/qr/{uuid}` | **不要（公開）** | UUID から領収書 URL を組み立て QR コード PNG を生成して返却（踏み台防止: UUID のみ受付） |
 | GET | `/api/generate-uuid` | セッション | UUID v7 を生成して返却 |
 
 ### ページ配信・設定系

@@ -39,6 +39,7 @@ alwaysApply: true
 ### セキュリティ上の注意
 
 - `/api/receipt/{uuid}` は認証不要（UUID を知っていれば誰でもアクセス可能）
+- `/api/qr/{uuid}` は認証不要（UUID 形式のバリデーション済み、サーバー側で URL を組み立てるため踏み台不可）
 - CSP で `'unsafe-inline'` と `'unsafe-eval'` が許可されている（ePOS SDK の要件）
 
 ## 🔑 機密情報管理
@@ -61,6 +62,7 @@ alwaysApply: true
 | `firebase.google.com/go/v4` | Firebase Admin SDK |
 | `cloud.google.com/go/storage` | GCS クライアント |
 | `github.com/google/uuid` | UUID v7 生成 |
+| `github.com/skip2/go-qrcode` | QR コード PNG 生成 |
 | `google.golang.org/api/option` | GCP クレデンシャル |
 
 ## ⚖️ ライセンス

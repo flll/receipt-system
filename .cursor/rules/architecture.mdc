@@ -52,6 +52,7 @@ receipt-system/
 | 認証（クライアント） | Firebase JS SDK (compat) 11.6.0 |
 | ストレージ | cloud.google.com/go/storage |
 | UUID | github.com/google/uuid (v7) |
+| QR コード | github.com/skip2/go-qrcode（サーバーサイド生成） |
 | プリンター | EPSON ePOS SDK 2.27.0（クライアントサイド） |
 | コンテナ | Docker (distroless/static, ~50MB) |
 | CI/CD | GitHub Actions |

@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/storage v1.61.3
 	firebase.google.com/go/v4 v4.19.0
 	github.com/google/uuid v1.6.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	google.golang.org/api v0.273.0
 )
 

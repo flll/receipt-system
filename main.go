@@ -20,6 +20,7 @@ import (
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
 	"github.com/google/uuid"
+	qrcode "github.com/skip2/go-qrcode"
 	"google.golang.org/api/option"
 )
 
@@ -242,6 +243,7 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("GET /api/firebase-config", s.handleFirebaseConfig)
 	mux.HandleFunc("GET /api/csrf-token", s.handleCSRFToken)
 	mux.HandleFunc("GET /api/receipt/{uuid}", s.handleGetReceipt)
+	mux.HandleFunc("GET /api/qr/{uuid}", s.handleQRCode)
 	mux.HandleFunc("POST /sessionLogin", s.handleSessionLogin)
 	mux.HandleFunc("GET /logout", s.handleLogout)
 	mux.HandleFunc("GET /_ah/warmup", s.handleWarmup)
@@ -526,6 +528,32 @@ func (s *Server) handleGetReceipt(w http.ResponseWriter, r *http.Request) {
 	log.Println("領収書データを正常に取得しました")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+// ✷ QRコード画像を生成（UUID専用、踏み台防止）
+func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
+	uuidStr := r.PathValue("uuid")
+
+	if _, err := uuid.Parse(uuidStr); err != nil {
+		http.Error(w, "無効なUUID形式です", http.StatusBadRequest)
+		return
+	}
+
+	s.configMu.RLock()
+	receiptURL := s.config.ReceiptURL
+	s.configMu.RUnlock()
+
+	qrData := receiptURL + uuidStr
+	png, err := qrcode.Encode(qrData, qrcode.High, 150)
+	if err != nil {
+		log.Printf("QRコード生成エラー: %v", err)
+		http.Error(w, "QRコード生成に失敗しました", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(png)
 }
 
 func (s *Server) handleSaveReceipt(w http.ResponseWriter, r *http.Request) {

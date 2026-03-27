@@ -251,7 +251,7 @@
 
                 const qrImg = document.createElement('img');
                 qrImg.alt = 'QR Code';
-                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(window.location.href)}`;
+                qrImg.src = `/api/qr/${uuid}`;
 
                 qrDiv.appendChild(qrImg);
                 content.appendChild(qrDiv);
