@@ -42,6 +42,28 @@ type Config struct {
 	AllowedEmails    []string `json:"allowedEmails"`
 }
 
+// ✷ ディレクトリリスティングを無効化する FileSystem ラッパー
+type noListingFS struct {
+	fs http.FileSystem
+}
+
+func (n noListingFS) Open(name string) (http.File, error) {
+	f, err := n.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if stat.IsDir() {
+		f.Close()
+		return nil, os.ErrNotExist
+	}
+	return f, nil
+}
+
 // ✷ サーバーの中核
 type Server struct {
 	config     *Config
@@ -239,9 +261,9 @@ func isProduction() bool {
 func (s *Server) setupRoutes() {
 	mux := http.NewServeMux()
 
-	// ✷ 静的ファイル
-	mux.Handle("GET /js/", http.StripPrefix("/js/", http.FileServer(http.Dir("./js"))))
-	mux.Handle("GET /editor/", http.StripPrefix("/editor/", http.FileServer(http.Dir("./editor"))))
+	// ✷ 静的ファイル（ディレクトリリスティング無効）
+	mux.Handle("GET /js/", http.StripPrefix("/js/", http.FileServer(noListingFS{http.Dir("./js")})))
+	mux.Handle("GET /editor/", http.StripPrefix("/editor/", http.FileServer(noListingFS{http.Dir("./editor")})))
 
 	// ✷ 公開 API（認証不要）
 	mux.HandleFunc("GET /api/firebase-config", s.handleFirebaseConfig)
@@ -436,6 +458,9 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ✷ 巨大ボディによる DoS 防止
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	var body struct {
 		IDToken string `json:"idToken"`
 	}
@@ -612,6 +637,9 @@ func (s *Server) handleSaveReceipt(w http.ResponseWriter, r *http.Request) {
 		Address    string `json:"address"`
 		IssuerName string `json:"issuerName"`
 	}
+	// ✷ 巨大ボディによる DoS 防止
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, 400, map[string]any{"success": false, "error": "リクエスト不正"})
 		return
@@ -632,12 +660,12 @@ func (s *Server) handleSaveReceipt(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := writer.Write(receiptData); err != nil {
 		log.Printf("Receipt save error: %v", err)
-		writeJSON(w, 500, map[string]any{"success": false, "error": err.Error()})
+		writeJSON(w, 500, map[string]any{"success": false, "error": "サーバーエラーが発生しました"})
 		return
 	}
 	if err := writer.Close(); err != nil {
 		log.Printf("Receipt save error: %v", err)
-		writeJSON(w, 500, map[string]any{"success": false, "error": err.Error()})
+		writeJSON(w, 500, map[string]any{"success": false, "error": "サーバーエラーが発生しました"})
 		return
 	}
 
