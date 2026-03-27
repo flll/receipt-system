@@ -2,31 +2,22 @@ APP_NAME    := receipt-system
 IMAGE_NAME  := fjlli/receipt-system
 PORT        := 8080
 
-.PHONY: run build clean docker-build docker-run docker-pull-run vet
+.PHONY: run build vet clean docker-build docker-push docker-run docker-pull-run
 
-# ✷ ローカル実行
-run:
-	go run .
+# ✷ ビルドしてプッシュ
+push: build
+	docker push $(IMAGE_NAME)
 
-# ✷ バイナリビルド
-build:
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(APP_NAME) .
-
-# ✷ 静的解析
-vet:
-	go vet ./...
-
-# ✷ クリーンアップ
-clean:
-	rm -f $(APP_NAME)
-
-# ✷ Docker イメージビルド
-docker-build:
-	docker build -t $(IMAGE_NAME) .
-
-# ✷ ローカルビルドしたイメージを実行
-docker-run: docker-build
+run: build
 	docker run --rm -p $(PORT):$(PORT) -v $(PWD)/config:/app/config $(IMAGE_NAME)
+
+# ✷ Docker 内で静的解析
+vet:
+	docker run --rm golang:1.25 go vet ./...
+
+# ✷ ビルドして実行
+build: 
+	docker build -t $(IMAGE_NAME) .
 
 # ✷ Docker Hub のイメージを pull して実行
 docker-pull-run:
