@@ -1,139 +1,120 @@
-# ePOS領収書印刷システム
-## 概要
+# ePOS 領収書印刷システム
 
-このシステムは、EPSONのePOSプリンターを使用して領収書を印刷し、その内容をGoogle Cloud Storageに保存するウェブアプリケーションです。
+EPSON ePOS プリンターで領収書を印刷し、Google Cloud Storage に保存するウェブアプリケーション。
+Firebase Authentication による Google ログイン認証付き。印刷された領収書は QR コード経由で公開共有できる。
 
-主な機能：
-- Google認証によるセキュアなログイン
-- 許可されたメールアドレスのみアクセス可能
-- 領収書の印刷と保存
-- 印刷された領収書のオンライン確認機能
-- QRコードによる領収書の共有
+**Go のシングルバイナリを Docker でビルド・実行するため、ホストに Go のインストールは不要。**
 
-## システム要件
+## 必要なもの
 
-- Go 1.24以上
-- EPSONのePOS対応プリンター
-- Google Cloud Platform アカウント
-- Firebase プロジェクト
+| 必須 | 用途 |
+|---|---|
+| **Docker** | ビルド・実行環境 |
+| **make** | コマンドのショートカット |
+| **GCP アカウント** | Cloud Storage / Cloud Run |
+| **Firebase プロジェクト** | 認証 (Google ログイン) |
+| **EPSON ePOS 対応プリンター** | 領収書の印刷 |
 
-## インストール
+## クイックスタート
 
-### 大まかな流れ:
-
-1. firebaseを作成
-1. firebaseでAuthenticatorを有効化
-1. firebaseのサービスアカウントのメールアドレスが発行されるため、
-    そのメールアドレスを使ってStorage Cloudバケットに読書権限を付与する。
-1. config.jsonを頑張って書き込む
-1. Access-Control-Allow-Originや、CORSを任意で書き換える
-1. Google Cloud Secret-Managerにconfig.jsonを添付する。
-1. Cloud Runにビルドしたdockerコンテナを積載し、/app/configにシークレットをマウントさせる。
-1. デプロイ
-
-### 詳細な手順:
-
-1. 設定ファイルの準備:
-   - `config/config.json.temp` を `config/config.json` にコピー
-   - 必要な設定を行う:
-     ```json
-     {
-       "protocol": "https",
-       "printerIP": "xxx.xxx.xxx.xxx",
-       "devid": "local_printer",
-       "phone": "xxx-xxxx-xxxx",
-       "address": "東京都...",
-       "issuerName": "株式会社...",
-       "bucketName": "your-bucket-name",
-       "firebaseApiKey": "your-api-key",
-       "firebaseAuthDomain": "your-project-id.firebaseapp.com",
-       "firebaseProjectId": "your-project-id",
-       "allowedEmails": ["example@domain.com"]
-     }
-     ```
-
-1. Firebase認証の設定:
-   - Firebaseコンソールでサービスアカウントキーを取得
-   - `config/firebase-service-account-key.json`として保存
-   - cloud run の場合はjsonは不要。サービスアカウントの指定を行うこと。
-
-2. Firebase Console でドメインを承認:
-   a. [Firebase Console](https://console.firebase.google.com/) にアクセス
-   b. 対象プロジェクト（例：`receipt-system-flll`）を選択
-   c. 左メニューから「Authentication」をクリック
-   d. 「Settings」タブをクリック
-   e. 「Authorized domains」セクションを見つける
-   f. 「Add domain」ボタンをクリックして以下を追加：
-      - `localhost` (開発環境用)
-      - 本番環境のドメイン（例：`your-domain.com`）
-
-## 使用方法
-
-1. サーバーの起動:
+### 1. 設定ファイルを準備
 
 ```bash
-go run .
+cp config/config.json.temp config/config.json
 ```
 
-2. ブラウザでアクセス:
-   - 開発環境: `http://localhost:8080`
-   - 本番環境: 設定したドメイン
+`config/config.json` を開き、各項目を埋める（詳細は[設定ファイル](#設定ファイル)を参照）。
 
-3. 操作手順:
-   a. Googleアカウントでログイン
-   b. 金額を入力（0-20,000円）
-   c. 「印刷」ボタンをクリック
+### 2. Firebase サービスアカウントキーを配置
 
+Firebase Console → プロジェクト設定 → サービスアカウント → 新しい秘密鍵を生成し、以下に保存:
 
-### ストレージセキュリティ
-- Google Cloud Storageのバケットアクセス権限の確認
-- 保存データの暗号化状態の確認
-- 古いデータの自動削除ポリシーの確認
+```
+config/firebase-service-account-key.json
+```
 
-## 技術仕様
+> Cloud Run で動かす場合はキーファイル不要。サービスアカウントを直接指定する。
 
-### フロントエンド
-- HTML/CSS/JavaScript
-- Firebase Authentication SDK
-
-### バックエンド
-- Go (net/http 標準ライブラリ)
-- Firebase Admin SDK for Go
-- Google Cloud Storage for Go
-- EPSONのePOS SDK
-
-### データストレージ
-- Google Cloud Storage（領収書データ）
-- Firebaseセッション管理
-
-### 環境変数
-- `PORT`: サーバーポート（デフォルト: 8080）
-- `SESSION_SECRET`: セッション用シークレット（Go版では未使用）
-- `NODE_ENV`: `production` で Cookie の secure フラグ等を有効化
-
-## ビルド
+### 3. 起動
 
 ```bash
-# Docker ビルド
-make build
-make
+make run
 ```
+
+Docker イメージをビルドし、`http://localhost:8080` でサーバーが起動する。
+
+## 設定ファイル
+
+### config/config.json
+
+| キー | 説明 | 例 |
+|---|---|---|
+| `protocol` | プリンタ通信プロトコル | `"https"` |
+| `printerIP` | ePOS プリンタの IP アドレス | `"192.168.1.100"` |
+| `devid` | プリンタデバイス ID | `"local_printer"` |
+| `phone` | 領収書に印字する電話番号 | `"03-1234-5678"` |
+| `address` | 領収書に印字する住所 | `"東京都..."` |
+| `amount` | デフォルト金額 | `"0"` |
+| `receiptURL` | 領収書公開 URL のベース | `"https://your-domain.com/receipt?uuid="` |
+| `issuerName` | 発行者名 | `"株式会社..."` |
+| `projectId` | GCP プロジェクト ID | `"my-project"` |
+| `bucketName` | GCS バケット名 | `"my-bucket"` |
+| `firebaseApiKey` | Firebase Web API キー | `"AIza..."` |
+| `firebaseAuthDomain` | Firebase Auth ドメイン | `"my-project.firebaseapp.com"` |
+| `firebaseProjectId` | Firebase プロジェクト ID | `"my-project"` |
+| `allowedEmails` | アクセス許可メールアドレス | `["user@example.com"]` |
+
+## Make コマンド
+
+| コマンド | 動作 |
+|---|---|
+| `make run` | Docker イメージをビルドして起動（`localhost:8080`） |
+| `make build` | Docker イメージのビルドのみ |
+| `make push` | Docker イメージをビルドして Docker Hub にプッシュ |
+   
+## 本番デプロイ (Cloud Run)
+
+1. **Firebase プロジェクト作成** → Authentication で Google プロバイダを有効化
+2. **GCS バケット作成** → Firebase サービスアカウントに読み書き権限を付与
+3. **Firebase Console** → Authentication → Settings → Authorized domains に本番ドメインを追加
+4. **`config.json` を作成** → 全キーを本番値で埋める
+5. **Secret Manager** に `config.json` を登録
+6. **Cloud Run にデプロイ**:
+   - イメージ: `fjlli/receipt-system`
+   - シークレットを `/app/config/config.json` にマウント
+   - サービスアカウントに Firebase Admin + GCS 権限を付与
+
+> `main` ブランチに push すると GitHub Actions が自動で Docker Hub にイメージをプッシュする。
 
 ## トラブルシューティング
 
-1. プリンター接続エラー:
-   - プリンターのIPアドレスを確認
-   - ネットワーク接続を確認
-   - ファイアウォール設定を確認
+**プリンター接続エラー**
+- プリンターの IP アドレスが `config.json` の `printerIP` と一致しているか確認
+- ブラウザとプリンターが同一ネットワークにあるか確認
+- ファイアウォールでプリンターのポートがブロックされていないか確認
 
-2. 認証エラー:
-   - Firebaseの設定を確認
-   - 許可メールアドレスリストを確認
+**認証エラー**
+- Firebase Console で対象ドメインが Authorized domains に登録されているか確認
+- `config.json` の `allowedEmails` に対象メールアドレスが含まれているか確認
+- `firebase-service-account-key.json` が正しいプロジェクトのものか確認
+
+## 技術スタック
+
+| 層 | 技術 |
+|---|---|
+| バックエンド | Go (net/http 標準ライブラリ) |
+| フロントエンド | HTML / CSS / JavaScript |
+| 認証 | Firebase Authentication |
+| ストレージ | Google Cloud Storage |
+| プリンター | EPSON ePOS SDK 2.27.0 |
+| コンテナ | Docker (distroless/static, ~50MB) |
+| CI/CD | GitHub Actions → Docker Hub |
+| ホスティング | Google Cloud Run |
 
 ![](https://raw.githubusercontent.com/flll/receipt-system/refs/heads/main/editor/b.png)
 
-## ライセンス・利用規約
+## ライセンス
 
-本リポジトリには、EPSONのePOS SDKが含まれています。  
-ePOS SDKの利用には、同梱の `EULA.ja.txt`（エンドユーザーライセンス契約書）の条件が適用されます。  
-本SDKを利用する場合は、必ず `EULA.ja.txt` の内容をご確認ください。
+本リポジトリには EPSON ePOS SDK が含まれています。
+ePOS SDK の利用には `EULA.ja.txt`（エンドユーザーライセンス契約書）の条件が適用されます。
+利用前に必ず内容を確認してください。
