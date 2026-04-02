@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"cloud.google.com/go/storage"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,9 +14,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"text/template"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -40,6 +44,7 @@ type Config struct {
 	FirebaseAuthDom  string   `json:"firebaseAuthDomain"`
 	FirebaseProjectID string  `json:"firebaseProjectId"`
 	AllowedEmails    []string `json:"allowedEmails"`
+	APIKey           string   `json:"apiKey"`
 }
 
 // ✷ ディレクトリリスティングを無効化する FileSystem ラッパー
@@ -66,12 +71,13 @@ func (n noListingFS) Open(name string) (http.File, error) {
 
 // ✷ サーバーの中核
 type Server struct {
-	config     *Config
-	configMu   sync.RWMutex
-	authClient *auth.Client
-	gcsBucket  *storage.BucketHandle
-	mux        *http.ServeMux
-	indexHTML   []byte
+	config      *Config
+	configMu    sync.RWMutex
+	authClient  *auth.Client
+	gcsBucket   *storage.BucketHandle
+	mux         *http.ServeMux
+	indexHTML    []byte
+	receiptTmpl *template.Template
 }
 
 func main() {
@@ -166,6 +172,13 @@ func newServer()(* Server, error) {
 		return nil, fmt.Errorf("index.html読み込みエラー: %w", err)
 	}
 	s.indexHTML = indexData
+
+	// ✷ 領収書XMLテンプレート読み込み
+	receiptTmpl, err := template.ParseFiles("./templates/receipt.xml")
+	if err != nil {
+		return nil, fmt.Errorf("領収書テンプレート読み込みエラー: %w", err)
+	}
+	s.receiptTmpl = receiptTmpl
 
 	// ✷ ルーティング設定
 	s.setupRoutes()
@@ -264,6 +277,7 @@ func (s *Server) setupRoutes() {
 	// ✷ 静的ファイル（ディレクトリリスティング無効）
 	mux.Handle("GET /js/", http.StripPrefix("/js/", http.FileServer(noListingFS{http.Dir("./js")})))
 	mux.Handle("GET /editor/", http.StripPrefix("/editor/", http.FileServer(noListingFS{http.Dir("./editor")})))
+	mux.Handle("GET /templates/", http.StripPrefix("/templates/", http.FileServer(noListingFS{http.Dir("./templates")})))
 
 	// ✷ 公開 API（認証不要）
 	mux.HandleFunc("GET /api/firebase-config", s.handleFirebaseConfig)
@@ -278,6 +292,9 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("POST /api/save-receipt", s.handleSaveReceipt)
 	mux.HandleFunc("GET /api/generate-uuid", s.handleGenerateUUID)
 	mux.HandleFunc("GET /config/config.json", s.handleConfigJSON)
+
+	// ✷ APIキー認証 API（SIP/Asterisk等のM2M通信用）
+	mux.HandleFunc("POST /api/print-receipt", s.handlePrintReceipt)
 
 	// ✷ ページ配信
 	mux.HandleFunc("GET /login", s.handleLoginPage)
@@ -740,6 +757,205 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+// ========== SIP/M2M 印刷 API ==========
+
+// ✷ 半角数字を全角に変換
+func toFullWidth(s string) string {
+	var buf strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			buf.WriteRune(r - '0' + '０')
+		} else if r == ',' {
+			buf.WriteRune('，')
+		} else {
+			buf.WriteRune(r)
+		}
+	}
+	return buf.String()
+}
+
+// ✷ 金額フォーマット（全角 ￥1，000ー 形式）
+func formatAmount(amount int) string {
+	s := strconv.Itoa(amount)
+	if len(s) > 3 {
+		var parts []string
+		for len(s) > 3 {
+			parts = append([]string{s[len(s)-3:]}, parts...)
+			s = s[:len(s)-3]
+		}
+		parts = append([]string{s}, parts...)
+		s = strings.Join(parts, ",")
+	}
+	return "￥" + toFullWidth(s) + "ー"
+}
+
+// ✷ 日時フォーマット（2026年04月02日(水)14:30 形式）
+func formatDateTime(t time.Time) string {
+	weekdays := []string{"日", "月", "火", "水", "木", "金", "土"}
+	return fmt.Sprintf("%d年%02d月%02d日(%s)%02d:%02d",
+		t.Year(), t.Month(), t.Day(), weekdays[t.Weekday()],
+		t.Hour(), t.Minute())
+}
+
+// ✷ 領収書テンプレートに渡すデータ（templates/receipt.xml と共有）
+type ReceiptTemplateData struct {
+	UUID       string
+	Amount     string
+	Datetime   string
+	ReceiptURL string
+	IssuerName string
+	Address    string
+	Phone      string
+}
+
+// ✷ ePOS-Print XML を組み立てる（templates/receipt.xml を使用）
+func (s *Server) buildReceiptXML(receiptUUID string, amount int, datetime string) string {
+	cfg := s.getConfig()
+
+	data := ReceiptTemplateData{
+		UUID:       receiptUUID,
+		Amount:     formatAmount(amount),
+		Datetime:   datetime,
+		ReceiptURL: cfg.ReceiptURL + receiptUUID,
+		IssuerName: cfg.IssuerName,
+		Address:    cfg.Address,
+		Phone:      cfg.Phone,
+	}
+
+	var buf bytes.Buffer
+	if err := s.receiptTmpl.Execute(&buf, data); err != nil {
+		log.Printf("テンプレートレンダリングエラー: %v", err)
+		return ""
+	}
+	return buf.String()
+}
+
+// ✷ ePOS-Print SOAP エンベロープでラップ
+func wrapSOAPEnvelope(eposBody string) string {
+	return `<?xml version="1.0" encoding="utf-8"?>` +
+		`<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">` +
+		`<s:Body>` +
+		`<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">` +
+		eposBody +
+		`</epos-print>` +
+		`</s:Body>` +
+		`</s:Envelope>`
+}
+
+// ✷ ePOSプリンタへ SOAP/XML で印刷リクエストを送信
+func (s *Server) sendToPrinter(xmlBody string) error {
+	cfg := s.getConfig()
+	printerURL := fmt.Sprintf("%s://%s/cgi-bin/epos/service.cgi?devid=%s&timeout=10000",
+		cfg.Protocol, cfg.PrinterIP, cfg.DevID)
+
+	soapXML := wrapSOAPEnvelope(xmlBody)
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	req, err := http.NewRequest("POST", printerURL, bytes.NewBufferString(soapXML))
+	if err != nil {
+		return fmt.Errorf("リクエスト作成エラー: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	req.Header.Set("SOAPAction", `""`)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("プリンタ通信エラー: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	respStr := string(respBody)
+
+	if !strings.Contains(respStr, `success="true"`) && !strings.Contains(respStr, `success="1"`) {
+		return fmt.Errorf("プリンタエラー: %s", respStr)
+	}
+
+	return nil
+}
+
+// ✷ POST /api/print-receipt — APIキー認証で領収書を印刷+保存（SIP/Asterisk用）
+func (s *Server) handlePrintReceipt(w http.ResponseWriter, r *http.Request) {
+	if !s.verifyAPIKey(r) {
+		writeJSON(w, 401, map[string]string{"error": "APIキーが無効です"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var body struct {
+		Amount int `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]any{"success": false, "error": "リクエスト不正"})
+		return
+	}
+
+	if body.Amount < 0 || body.Amount > 20000 {
+		writeJSON(w, 400, map[string]any{"success": false, "error": "金額は0〜20,000円の範囲で指定してください"})
+		return
+	}
+
+	receiptUUID, err := uuid.NewV7()
+	if err != nil {
+		log.Printf("UUID生成エラー: %v", err)
+		writeJSON(w, 500, map[string]any{"success": false, "error": "UUID生成に失敗しました"})
+		return
+	}
+	uuidStr := receiptUUID.String()
+	now := time.Now()
+	datetime := formatDateTime(now)
+
+	cfg := s.getConfig()
+
+	xmlBody := s.buildReceiptXML(uuidStr, body.Amount, datetime)
+	if err := s.sendToPrinter(xmlBody); err != nil {
+		log.Printf("印刷エラー: %v", err)
+		writeJSON(w, 500, map[string]any{"success": false, "error": "印刷に失敗しました"})
+		return
+	}
+	log.Printf("SIP印刷完了: uuid=%s amount=%d", uuidStr, body.Amount)
+
+	receiptData, _ := json.MarshalIndent(map[string]string{
+		"uuid":       uuidStr,
+		"amount":     strconv.Itoa(body.Amount),
+		"datetime":   datetime,
+		"phone":      cfg.Phone,
+		"address":    cfg.Address,
+		"issuerName": cfg.IssuerName,
+	}, "", "  ")
+
+	ctx := r.Context()
+	obj := s.gcsBucket.Object(fmt.Sprintf("receipts/%s.json", uuidStr))
+	writer := obj.NewWriter(ctx)
+	writer.ContentType = "application/json"
+	writer.CacheControl = "public, max-age=31536000"
+
+	if _, err := writer.Write(receiptData); err != nil {
+		log.Printf("GCS保存エラー: %v", err)
+		writeJSON(w, 500, map[string]any{"success": false, "error": "印刷は成功しましたが、データの保存に失敗しました"})
+		return
+	}
+	if err := writer.Close(); err != nil {
+		log.Printf("GCS保存エラー: %v", err)
+		writeJSON(w, 500, map[string]any{"success": false, "error": "印刷は成功しましたが、データの保存に失敗しました"})
+		return
+	}
+	log.Printf("GCS保存完了: receipts/%s.json", uuidStr)
+
+	writeJSON(w, 200, map[string]any{
+		"success": true,
+		"uuid":    uuidStr,
+		"amount":  strconv.Itoa(body.Amount),
+	})
+}
+
 // ========== 認証ヘルパー ==========
 
 // ✷ Bearer トークンからメールアドレスを取得
@@ -770,6 +986,13 @@ func (s *Server) verifySession(r *http.Request) bool {
 	}
 	email, _ := token.Claims["email"].(string)
 	return s.isEmailAllowed(email)
+}
+
+// ✷ APIキー認証（M2M通信用: SIP/Asterisk等から利用）
+func (s *Server) verifyAPIKey(r *http.Request) bool {
+	key := r.Header.Get("X-API-Key")
+	cfg := s.getConfig()
+	return key != "" && cfg.APIKey != "" && key == cfg.APIKey
 }
 
 // ✷ CSRF 検証（プリンタ IP からの直接リクエストのみスキップ）

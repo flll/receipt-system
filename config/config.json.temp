@@ -15,5 +15,6 @@
   "allowedEmails": [
     "example1@domain.com",
     "example2@domain.com"
-  ]
+  ],
+  "apiKey": "your-secret-api-key-here"
 }

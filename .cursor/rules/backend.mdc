@@ -28,6 +28,12 @@ alwaysApply: false
 | GET | `/api/qr/{uuid}` | **不要（公開）** | UUID から領収書 URL を組み立て QR コード PNG を生成して返却（踏み台防止: UUID のみ受付） |
 | GET | `/api/generate-uuid` | セッション | UUID v7 を生成して返却 |
 
+### M2M 印刷系（SIP/Asterisk 連携）
+
+| メソッド | パス | 認証 | 説明 |
+|---|---|---|---|
+| POST | `/api/print-receipt` | APIキー (`X-API-Key`) | 金額を受け取り、サーバーサイドで領収書を印刷 + GCS に保存 |
+
 ### ページ配信・設定系
 
 | メソッド | パス | 認証 | 説明 |
@@ -71,6 +77,10 @@ Go の `middleware()` メソッドで全リクエストに適用:
 2. **Bearer トークン認証** (`verifyBearerToken`)
    - API 呼び出し時（`/api/save-receipt`）
    - `Authorization: Bearer <Firebase ID Token>` ヘッダ
+
+3. **APIキー認証** (`verifyAPIKey`)
+   - M2M 通信用（`/api/print-receipt`）
+   - `X-API-Key` ヘッダで `config.json` の `apiKey` と照合
 
 ## 📦 データモデル
 

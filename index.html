@@ -10,18 +10,19 @@
 <title>ePOS-領収書印刷</title>
 <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth-compat.js"></script>
-<script type="text/javascript" src="js/epos-2.27.0.js"></script>
 <script type="text/javascript">
 <!--
     let CONFIG = {};
     let currentUser = null;
+    let receiptTemplate = '';
 
     async function loadConfig() {
         try {
-            // ✷ アプリ設定と Firebase 設定を並列取得
-            const [configRes, firebaseRes] = await Promise.all([
+            // ✷ アプリ設定・Firebase 設定・領収書テンプレートを並列取得
+            const [configRes, firebaseRes, templateRes] = await Promise.all([
                 fetch('./config/config.json'),
                 fetch('/api/firebase-config'),
+                fetch('/templates/receipt.xml'),
             ]);
             if (!configRes.ok) {
                 throw new Error('設定ファイルの読み込みに失敗しました');
@@ -29,8 +30,12 @@
             if (!firebaseRes.ok) {
                 throw new Error('Firebase設定の取得に失敗しました');
             }
+            if (!templateRes.ok) {
+                throw new Error('領収書テンプレートの取得に失敗しました');
+            }
             CONFIG = await configRes.json();
             const firebaseConfig = await firebaseRes.json();
+            receiptTemplate = await templateRes.text();
 
             firebase.apps.forEach(app => app.delete());
             firebase.initializeApp(firebaseConfig);
@@ -150,6 +155,50 @@
         updateConfigDisplay();
     }
 
+    // ✷ テンプレートのプレースホルダを置換してePOS-Print XMLボディを生成
+    function renderReceiptXML(vars) {
+        let xml = receiptTemplate;
+        for (const [key, value] of Object.entries(vars)) {
+            xml = xml.replaceAll('{{.' + key + '}}', value);
+        }
+        return xml;
+    }
+
+    // ✷ SOAPエンベロープでラップ（Go側の wrapSOAPEnvelope と同一）
+    function wrapSOAPEnvelope(eposBody) {
+        return '<?xml version="1.0" encoding="utf-8"?>' +
+            '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' +
+            '<s:Body>' +
+            '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">' +
+            eposBody +
+            '</epos-print>' +
+            '</s:Body>' +
+            '</s:Envelope>';
+    }
+
+    // ✷ プリンタにSOAP/XMLを送信してレスポンスをパース
+    function sendToPrinter(url, soapXML) {
+        return new Promise(function(resolve, reject) {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
+            xhr.setRequestHeader('SOAPAction', '""');
+            xhr.timeout = 30000;
+            xhr.onload = function() {
+                const res = xhr.responseText;
+                const success = /success\s*=\s*"\s*(1|true)\s*"/.test(res);
+                resolve({ success: success, response: res });
+            };
+            xhr.onerror = function() {
+                reject(new Error('プリンタ通信エラー'));
+            };
+            xhr.ontimeout = function() {
+                reject(new Error('プリンタ通信タイムアウト'));
+            };
+            xhr.send(soapXML);
+        });
+    }
+
     async function button1_Click() {
         if (!currentUser) {
             alert('ログインが必要です');
@@ -158,7 +207,7 @@
 
         try {
             const idToken = await currentUser.getIdToken();
-            const printButton = document.querySelector('button');
+            const printButton = document.getElementById('printButton');
             printButton.disabled = true;
 
             await updateConfig();
@@ -167,109 +216,65 @@
 
             const currentDateTime = formatDateTime(new Date());
 
-            const builder = new epson.ePOSBuilder();
-            builder.addTextLang('ja');
-            builder.addTextSmooth(true);
-            builder.addTextAlign(builder.ALIGN_CENTER);
-            builder.addSymbol(CONFIG.uuid, builder.SYMBOL_PDF417_STANDARD, builder.LEVEL_6, 0, 1, 0);
-            builder.addPageBegin();
-            builder.addPageArea(0, 0, 550, 870);
-            builder.addPageDirection(builder.DIRECTION_TOP_TO_BOTTOM);
-            builder.addPagePosition(80, 80);
-            builder.addTextFont(builder.FONT_C);
-            builder.addTextDouble(true, true);
-            builder.addText('領   収   証');
-            builder.addPagePosition(80, 210);
-            builder.addTextStyle(false, true, true, builder.COLOR_1);
-            builder.addText('　　　　　　　様');
-            builder.addPagePosition(130, 320);
-            builder.addText(formatAmount(parseInt(CONFIG.amount)));
-            builder.addTextStyle(false, false, false, builder.COLOR_1);
-            builder.addTextDouble(false, false);
-            builder.addPagePosition(60, 380);
-            builder.addText('但し、お品代として');
-            builder.addPagePosition(60, 410);
-            builder.addText('上記正に領収いたしました。');
-            builder.addPagePosition(40, 490);
-            builder.addTextFont(builder.FONT_A);
-            builder.addText('UUID(v7):');
-            builder.addPagePosition(40, 520);
-            builder.addText(CONFIG.uuid);
-            builder.addPagePosition(530, 80);
-            builder.addText(currentDateTime);
-            builder.addPagePosition(600, 180);
-            builder.addSymbol(`${CONFIG.receiptURL}${CONFIG.uuid}`, builder.SYMBOL_QRCODE_MODEL_2, builder.LEVEL_H, 3, 0, 0);
-            builder.addPagePosition(530, 440);
-            builder.addText(CONFIG.issuerName);
-            builder.addPagePosition(530, 490);
-            builder.addText(CONFIG.address);
-            builder.addPagePosition(530, 520);
-            builder.addText(`TEL ${CONFIG.phone}`);
-            builder.addPageEnd();
-            builder.addTextRotate(true);
-            builder.addSymbol(CONFIG.uuid, builder.SYMBOL_PDF417_STANDARD, builder.LEVEL_8, 0, 1, 0);
-            builder.addCut(builder.CUT_FEED);
+            // ✷ テンプレートから印刷XML生成（templates/receipt.xml を使用）
+            const eposBody = renderReceiptXML({
+                UUID: CONFIG.uuid,
+                Amount: formatAmount(parseInt(CONFIG.amount)),
+                Datetime: currentDateTime,
+                ReceiptURL: CONFIG.receiptURL + CONFIG.uuid,
+                IssuerName: CONFIG.issuerName,
+                Address: CONFIG.address,
+                Phone: CONFIG.phone
+            });
+            const soapXML = wrapSOAPEnvelope(eposBody);
 
-            const epos = new epson.ePOSPrint(url);
-            epos.onreceive = async function(res) {
-                printButton.disabled = false;
+            // ✷ プリンタに直接送信
+            const result = await sendToPrinter(url, soapXML);
+            printButton.disabled = false;
 
-                if (res.success) {
-                    try {
-                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-                        if (!csrfToken) {
-                            throw new Error('CSRFトークンが見つかりません');
-                        }
-
-                        const saveResponse = await fetch('/api/save-receipt', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${idToken}`,
-                                'X-CSRF-Token': csrfToken
-                            },
-                            credentials: 'include',
-                            body: JSON.stringify({
-                                uuid: CONFIG.uuid,
-                                amount: CONFIG.amount,
-                                datetime: currentDateTime,
-                                phone: CONFIG.phone,
-                                address: CONFIG.address,
-                                issuerName: CONFIG.issuerName
-                            })
-                        });
-
-                        if (!saveResponse.ok) {
-                            const errorData = await saveResponse.json();
-                            throw new Error(errorData.error || '印刷データの保存に失敗しました');
-                        }
-                        alert('印刷が完了しました');
-                    } catch (saveError) {
-                        console.error('データ保存エラー:', saveError);
-                        alert('印刷は成功しましたが、データの保存に失敗しました: ' + saveError.message);
+            if (result.success) {
+                try {
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+                    if (!csrfToken) {
+                        throw new Error('CSRFトークンが見つかりません');
                     }
-                } else {
-                    console.error('印刷エラー:', res);
-                    alert('印刷に失敗しました');
+
+                    const saveResponse = await fetch('/api/save-receipt', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`,
+                            'X-CSRF-Token': csrfToken
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            uuid: CONFIG.uuid,
+                            amount: CONFIG.amount,
+                            datetime: currentDateTime,
+                            phone: CONFIG.phone,
+                            address: CONFIG.address,
+                            issuerName: CONFIG.issuerName
+                        })
+                    });
+
+                    if (!saveResponse.ok) {
+                        const errorData = await saveResponse.json();
+                        throw new Error(errorData.error || '印刷データの保存に失敗しました');
+                    }
+                    alert('印刷が完了しました');
+                } catch (saveError) {
+                    console.error('データ保存エラー:', saveError);
+                    alert('印刷は成功しましたが、データの保存に失敗しました: ' + saveError.message);
                 }
-            };
-
-            epos.onerror = function(error) {
-                console.error('印刷エラー:', error);
-                printButton.disabled = false;
-                alert('印刷に失敗しました: ' + error.status);
-            };
-
-            epos.oncoveropen = function() {
-                alert('プリンターのカバーが開いています');
-            };
-
-            epos.send(builder.toString());
+            } else {
+                console.error('印刷エラー:', result.response);
+                alert('印刷に失敗しました');
+            }
 
         } catch (error) {
             console.error('エラーが発生しました:', error);
             alert('エラーが発生しました: ' + error.message);
-            document.querySelector('button').disabled = false;
+            document.getElementById('printButton').disabled = false;
         }
     }
 

@@ -15,6 +15,7 @@ COPY --from=build /app/index.html /app/index.html
 COPY --from=build /app/views /app/views
 COPY --from=build /app/js /app/js
 COPY --from=build /app/editor /app/editor
+COPY --from=build /app/templates /app/templates
 COPY --from=build /app/config /app/config
 WORKDIR /app
 CMD ["/app/receipt-system"]

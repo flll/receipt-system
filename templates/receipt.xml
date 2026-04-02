@@ -1,0 +1,41 @@
+<text lang="ja"/>
+<text smooth="true"/>
+<text align="center"/>
+<symbol type="pdf417_standard" level="level_6" width="1">{{.UUID}}</symbol>
+<page>
+<area x="0" y="0" width="550" height="870"/>
+<direction dir="top_to_bottom"/>
+<position x="80" y="80"/>
+<text font="font_c"/>
+<text dw="true" dh="true"/>
+<text>領   収   証</text>
+<position x="80" y="210"/>
+<text reverse="false" ul="true" em="true" color="color_1"/>
+<text>　　　　　　　様</text>
+<position x="130" y="320"/>
+<text>{{.Amount}}</text>
+<text reverse="false" ul="false" em="false" color="color_1"/>
+<text dw="false" dh="false"/>
+<position x="60" y="380"/>
+<text>但し、お品代として</text>
+<position x="60" y="410"/>
+<text>上記正に領収いたしました。</text>
+<position x="40" y="490"/>
+<text font="font_a"/>
+<text>UUID(v7):</text>
+<position x="40" y="520"/>
+<text>{{.UUID}}</text>
+<position x="530" y="80"/>
+<text>{{.Datetime}}</text>
+<position x="600" y="180"/>
+<symbol type="qrcode_model_2" level="level_h" width="3">{{.ReceiptURL}}</symbol>
+<position x="530" y="440"/>
+<text>{{.IssuerName}}</text>
+<position x="530" y="490"/>
+<text>{{.Address}}</text>
+<position x="530" y="520"/>
+<text>TEL {{.Phone}}</text>
+</page>
+<text rotate="true"/>
+<symbol type="pdf417_standard" level="level_8" width="1">{{.UUID}}</symbol>
+<cut type="feed"/>
