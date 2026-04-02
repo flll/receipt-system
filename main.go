@@ -298,6 +298,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		cfg := s.getConfig()
 		allowedOrigins := map[string]bool{
 			"https://receipt-printer.lll.fish":        true,
+			"https://receipt-view.lll.fish":           true,
 			"http://localhost:8080":                   true,
 			"https://localhost:8080":                  true,
 			"https://" + cfg.PrinterIP:                true,
@@ -446,6 +447,7 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 		cfg := s.getConfig()
 		allowedOrigins := map[string]bool{
 			"https://receipt-printer.lll.fish": true,
+			"https://receipt-view.lll.fish":   true,
 			"http://localhost:8080":            true,
 			"https://localhost:8080":           true,
 			"https://" + cfg.PrinterIP:         true,
