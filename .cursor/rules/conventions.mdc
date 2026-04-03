@@ -30,7 +30,6 @@ alwaysApply: true
 ### セキュリティ機構（実装済み）
 
 - **CSP ヘッダ**: Firebase, Google APIs, Cloudflare Insights 許可
-- **HSTS**: production 環境のみ有効
 - **CSRF 保護**: Cookie + ヘッダトークン一致検証
 - **Firebase Auth**: ID トークン検証 + セッション Cookie (`VerifySessionCookieAndCheckRevoked`)
 - **allowedEmails**: ホワイトリスト方式のアクセス制御

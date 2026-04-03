@@ -343,9 +343,6 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("X-XSS-Protection", "0")
 		w.Header().Set("X-Powered-By", "")
-		if isProduction() {
-			w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains; preload")
-		}
 
 		// ✷ CSP
 		printerIP := cfg.PrinterIP
@@ -354,7 +351,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://*.googleapis.com https://apis.google.com https://accounts.google.com https://*.cloudflareinsights.com",
 			"style-src 'self' 'unsafe-inline' https://www.gstatic.com https://*.googleapis.com https://fonts.googleapis.com",
 			"img-src 'self' data: https: blob:",
-			"connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com https://www.googleapis.com https://apis.google.com https://accounts.google.com https://*.lll.fish https://*.cloudflareinsights.com https://kitchen-printer.lll.fish https://www.gstatic.com https://" + printerIP,
+			"connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com https://www.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com https://*.lll.fish https://*.cloudflareinsights.com https://kitchen-printer.lll.fish https://www.gstatic.com https://" + printerIP,
 			"frame-src 'self' https://accounts.google.com https://*.firebaseapp.com https://*.googleapis.com",
 			"form-action 'self' https://accounts.google.com",
 			"object-src 'none'",

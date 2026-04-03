@@ -35,7 +35,6 @@ Go の `Config` 構造体にマッピングされる。
 | 変数 | 用途 | デフォルト |
 |---|---|---|
 | `PORT` | HTTP リスンポート | `8080` |
-| `NODE_ENV` | `production` で Cookie secure 等が有効化 | — |
 
 ## 🐳 Docker
 
