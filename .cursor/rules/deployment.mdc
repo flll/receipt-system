@@ -40,24 +40,17 @@ Go の `Config` 構造体にマッピングされる。
 
 ### Dockerfile（マルチステージビルド）
 
-```
-# Stage 1: ビルド
-FROM golang:1.25
-  - go mod download
-  - CGO_ENABLED=0 go build -ldflags="-s -w" -o receipt-system .
+実体はリポジトリの `Dockerfile` を参照。要点は以下。
 
-# Stage 2: 実行
-FROM gcr.io/distroless/static-debian12:nonroot
-  - バイナリ + 静的ファイルをコピー
-  - CMD ["/app/receipt-system"]
-```
+- **ビルド**: `go mod download && go mod verify` → `go build -mod=readonly`（`go.mod` / `go.sum` 固定で再現性を担保）
+- **実行**: `gcr.io/distroless/static-debian13`（シェル無し・攻撃面最小）
+- **設定**: イメージに **`config.json` や SA 鍵を含めない**。`config/config.json.temp` のみ同梱（スキーマ参照用）。本番は Cloud Run で Secret を `/app/config/config.json` にマウント
+- **`.dockerignore`**: `config/*.json` 等でビルドコンテキストから秘密を除外（`config.json.temp` は拡張子が `.temp` のため除外されない）
 
 **ポイント**:
-- distroless/static イメージ（~2MB ベース）で攻撃面を最小化（シェル・libc 無し）
+- distroless/static でシェル・libc 無し
 - `CGO_ENABLED=0` で完全静的リンク
-- `-ldflags="-s -w"` でデバッグ情報を削除しバイナリ軽量化
-- `nonroot` ユーザーで実行
-- **コンテナサイズ約 50MB**（Node.js 版 260MB から大幅削減）
+- `-ldflags="-s -w"` でバイナリ軽量化
 
 ## 🔄 CI/CD
 
