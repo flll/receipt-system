@@ -131,17 +131,21 @@ func newServer()(* Server, error) {
 	ctx := context.Background()
 
 	// ✷ Firebase Admin SDK 初期化
+	cfg := s.getConfig()
+	firebaseCfg := &firebase.Config{
+		ProjectID: cfg.FirebaseProjectID,
+	}
 	var firebaseApp *firebase.App
 	saPath := "./config/firebase-service-account-key.json"
 	if _, err := os.Stat(saPath); err == nil {
 		opt := option.WithCredentialsFile(saPath)
-		firebaseApp, err = firebase.NewApp(ctx, nil, opt)
+		firebaseApp, err = firebase.NewApp(ctx, firebaseCfg, opt)
 		if err != nil {
 			return nil, fmt.Errorf("Firebase初期化エラー: %w", err)
 		}
 	} else {
 		var err error
-		firebaseApp, err = firebase.NewApp(ctx, nil)
+		firebaseApp, err = firebase.NewApp(ctx, firebaseCfg)
 		if err != nil {
 			return nil, fmt.Errorf("Firebase初期化エラー: %w", err)
 		}

@@ -83,7 +83,16 @@ FROM gcr.io/distroless/static-debian12:nonroot
    - Docker イメージ: `fjlli/receipt-system`
    - シークレットを `/app/config/config.json` にマウント
    - サービスアカウントに Firebase Admin + GCS 権限を付与
+   - Cloud Run 実行サービスアカウント（例: `firebase-adminsdk-wfw22@lll-fish.iam.gserviceaccount.com`）へ、Firebase プロジェクト側で `roles/firebaseauth.admin` を付与
 6. **Firebase Console** で承認ドメインを追加
+
+### Firebase Auth 権限付与コマンド例
+
+```bash
+gcloud projects add-iam-policy-binding receipt-system-flll \
+  --member="serviceAccount:firebase-adminsdk-wfw22@lll-fish.iam.gserviceaccount.com" \
+  --role="roles/firebaseauth.admin"
+```
 
 ## 🔧 補助スクリプト
 
