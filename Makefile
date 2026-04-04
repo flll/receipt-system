@@ -5,7 +5,11 @@ PORT        := 8080
 .PHONY: run build mod-tidy vet clean docker-build docker-push docker-run docker-pull-run
 
 mod-tidy:
-	go mod tidy
+	@if command -v go >/dev/null 2>&1; then \
+		go mod tidy; \
+	else \
+		echo "go mod tidy: スキップ（go が PATH にありません。コミット済みの go.mod / go.sum でビルドします）"; \
+	fi
 
 build: mod-tidy
 	docker build -t $(IMAGE_NAME) .
